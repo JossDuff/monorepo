@@ -1,0 +1,280 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: op-geth
+spec:
+  ports:
+    - port: 8545
+      name: http-rpc
+      targetPort: 8545
+    - port: 8546
+      name: ws
+      targetPort: 8546
+    - port: 8551
+      name: auth-rpc
+      targetPort: 8551
+  selector:
+    app: op-geth
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: op-geth
+spec:
+  serviceName: op-geth
+  replicas: 1
+  selector:
+    matchLabels:
+      app: op-geth
+  template:
+    metadata:
+      labels:
+        app: op-geth
+    spec:
+      containers:
+      - name: op-geth
+        image: registry.digitalocean.com/sigil/op-geth:latest
+        ports:
+        - containerPort: 8545
+        - containerPort: 8546
+        - containerPort: 8551
+        volumeMounts:
+        - name: geth-storage
+          mountPath: /app/datadir
+        - name: jwt-secret
+          mountPath: /app/jwt.txt
+          subPath: jwt.txt
+        args:
+        - --datadir=/app/datadir
+        - --http
+        - --http.corsdomain=*
+        - --http.vhosts=*
+        - --http.addr=0.0.0.0
+        - --http.api=web3,debug,eth,txpool,net,engine
+        - --ws
+        - --ws.addr=0.0.0.0
+        - --ws.port=8546
+        - --ws.origins=*
+        - --ws.api=debug,eth,txpool,net,engine
+        - --syncmode=full
+        - --gcmode=archive
+        - --nodiscover
+        - --maxpeers=0
+        - --networkid=42069
+        - --authrpc.vhosts=*
+        - --authrpc.addr=0.0.0.0
+        - --authrpc.port=8551
+        - --authrpc.jwtsecret=/app/jwt.txt
+        - --rollup.disabletxpoolgossip=true
+      volumes:
+      - name: jwt-secret
+        secret:
+          secretName: op-stack-secrets
+          items:
+          - key: jwt.txt
+            path: jwt.txt
+  volumeClaimTemplates:
+  - metadata:
+      name: geth-storage
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 100Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: op-node
+spec:
+  ports:
+    - port: 9545
+      name: rpc
+  selector:
+    app: op-node
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: op-node
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: op-node
+  template:
+    metadata:
+      labels:
+        app: op-node
+    spec:
+      containers:
+      - name: op-node
+        image: registry.digitalocean.com/sigil/op-node:latest
+        ports:
+        - containerPort: 9545
+        volumeMounts:
+        - name: jwt-secret
+          mountPath: /app/jwt.txt
+          subPath: jwt.txt
+        - name: rollup-config
+          mountPath: /app/rollup.json
+          subPath: rollup.json
+        env:
+        - name: GS_SEQUENCER_PRIVATE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: op-stack-secrets
+              key: sequencer-key
+        - name: L1_RPC_URL
+          valueFrom:
+            secretKeyRef:
+              name: op-stack-secrets
+              key: l1-rpc-url
+        - name: L1_RPC_KIND
+          valueFrom:
+            secretKeyRef:
+              name: op-stack-secrets
+              key: l1-rpc-kind
+        - name: L1_BEACON_RPC_URL
+          valueFrom:
+            secretKeyRef:
+              name: op-stack-secrets
+              key: l1-beacon-rpc-url
+        args:
+        - --l2=http://op-geth:8551
+        - --l2.jwt-secret=/app/jwt.txt
+        - --l1.beacon=$(L1_BEACON_RPC_URL)
+        - --sequencer.enabled
+        - --sequencer.l1-confs=5
+        - --verifier.l1-confs=4
+        - --rollup.config=/app/rollup.json
+        - --rpc.addr=0.0.0.0
+        - --p2p.disable
+        - --rpc.enable-admin
+        - --p2p.sequencer.key=$(GS_SEQUENCER_PRIVATE_KEY)
+        - --l1=$(L1_RPC_URL)
+        - --l1.rpckind=$(L1_RPC_KIND)
+      volumes:
+      - name: jwt-secret
+        secret:
+          secretName: op-stack-secrets
+          items:
+          - key: jwt.txt
+            path: jwt.txt
+      - name: rollup-config
+        configMap:
+          name: op-stack-config
+          items:
+          - key: rollup.json
+            path: rollup.json
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: op-batcher
+spec:
+  ports:
+    - port: 8548
+      name: rpc
+  selector:
+    app: op-batcher
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: op-batcher
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: op-batcher
+  template:
+    metadata:
+      labels:
+        app: op-batcher
+    spec:
+      containers:
+      - name: op-batcher
+        image: registry.digitalocean.com/sigil/op-batcher:latest
+        ports:
+        - containerPort: 8548
+        env:
+        - name: GS_BATCHER_PRIVATE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: op-stack-secrets
+              key: batcher-key
+        - name: L1_RPC_URL
+          valueFrom:
+            secretKeyRef:
+              name: op-stack-secrets
+              key: l1-rpc-url
+        args:
+        - --l2-eth-rpc=http://op-geth:8545
+        - --rollup-rpc=http://op-node:9545
+        - --poll-interval=1s
+        - --sub-safety-margin=6
+        - --num-confirmations=1
+        - --safe-abort-nonce-too-low-count=3
+        - --resubmission-timeout=30s
+        - --rpc.addr=0.0.0.0
+        - --rpc.port=8548
+        - --rpc.enable-admin
+        - --max-channel-duration=25
+        - --l1-eth-rpc=$(L1_RPC_URL)
+        - --private-key=$(GS_BATCHER_PRIVATE_KEY)
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: op-proposer
+spec:
+  ports:
+    - port: 8560
+      name: rpc
+  selector:
+    app: op-proposer
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: op-proposer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: op-proposer
+  template:
+    metadata:
+      labels:
+        app: op-proposer
+    spec:
+      containers:
+      - name: op-proposer
+        image: registry.digitalocean.com/sigil/op-proposer:latest
+        ports:
+        - containerPort: 8560
+        env:
+        - name: GS_PROPOSER_PRIVATE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: op-stack-secrets
+              key: proposer-key
+        - name: L1_RPC_URL
+          valueFrom:
+            secretKeyRef:
+              name: op-stack-secrets
+              key: l1-rpc-url
+        - name: L2OO_ADDRESS
+          valueFrom:
+            secretKeyRef:
+              name: op-stack-secrets
+              key: l2oo-address
+        args:
+        - --poll-interval=12s
+        - --rpc.port=8560
+        - --rollup-rpc=http://op-node:9545
+        - --l2oo-address=$(L2OO_ADDRESS)
+        - --private-key=$(GS_PROPOSER_PRIVATE_KEY)
+        - --l1-eth-rpc=$(L1_RPC_URL)
