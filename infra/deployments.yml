@@ -32,6 +32,17 @@ spec:
       labels:
         app: op-geth
     spec:
+      initContainers:
+      - name: geth init datadir
+        image: registry.digitalocean.com/sigil/op-geth:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          if [ ! -d "/datadir" ]; then
+            geth init --datadir=/datadir --state.scheme=hash genesis.json
+          else
+          fi
       containers:
       - name: op-geth
         image: registry.digitalocean.com/sigil/op-geth:latest
