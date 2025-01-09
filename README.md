@@ -12,4 +12,6 @@ Permissive open source licenses are tools for the corporate subversion of libre 
 
 Sigil is an Ethereum rollup with an exit window. It is the execution environment we personally want. A legitimately fully-trustless L2, from day one. No centralized mechanisms, no security council: a dark shadow at the edge of orthodoxy. The bold push for progress before the maws of a hungry abyss. Sigil will save Ethereum.
 
-The Sigil client, for participating in the rollup, is located in the [`sigil`](./sigil/) folder. That folder also includes useful instructions for building and testing the project.
+# /priory
+
+WIP messaging layer for sigil nodes using libp2p.  Currently on backlog.
