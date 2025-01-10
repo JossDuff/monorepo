@@ -12,12 +12,10 @@ Contains binaries `op-proposer` and `server` (proof server).  If you want to bui
 the root of this repository `monorepo/`.  It's necessary to populate the
 `op-succinct/contracts/lib` folder with contracts that will be used in abigen.
 
-# /op-node
+# TODO /op-geth
 
-# /op-batcher
+Contains the execution node binary for the op-stack chain.
 
-# /op-geth
+# TODO /optimism
 
-# /op-proposer
-
-# /op-succinct-proposer
+Contains the op-stack chain binaries `op-batcher` and `op-node`.
