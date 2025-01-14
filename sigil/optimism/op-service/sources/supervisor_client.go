@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ethereum-optimism/optimism/op-service/client"
-	"github.com/ethereum-optimism/optimism/op-service/eth"
-	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+
+	"github.com/ethereum-optimism/optimism/op-service/client"
+	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/types"
 )
 
 type SupervisorClient struct {
@@ -21,7 +21,9 @@ func NewSupervisorClient(client client.RPC) *SupervisorClient {
 	}
 }
 
-func (cl *SupervisorClient) Stop(ctx context.Context) error {
+func (cl *SupervisorClient) Stop(
+	ctx context.Context,
+) error {
 	var result error
 	err := cl.client.CallContext(
 		ctx,
@@ -33,7 +35,9 @@ func (cl *SupervisorClient) Stop(ctx context.Context) error {
 	return result
 }
 
-func (cl *SupervisorClient) Start(ctx context.Context) error {
+func (cl *SupervisorClient) Start(
+	ctx context.Context,
+) error {
 	var result error
 	err := cl.client.CallContext(
 		ctx,
@@ -45,123 +49,34 @@ func (cl *SupervisorClient) Start(ctx context.Context) error {
 	return result
 }
 
-func (cl *SupervisorClient) AddL2RPC(ctx context.Context, rpc string, auth eth.Bytes32) error {
+func (cl *SupervisorClient) AddL2RPC(
+	ctx context.Context,
+	rpc string,
+) error {
 	var result error
 	err := cl.client.CallContext(
 		ctx,
 		&result,
 		"admin_addL2RPC",
-		rpc, auth)
+		rpc)
 	if err != nil {
 		return fmt.Errorf("failed to Add L2 to Supervisor (rpc: %s): %w", rpc, err)
 	}
 	return result
 }
 
-func (cl *SupervisorClient) CheckMessage(ctx context.Context, identifier types.Identifier, logHash common.Hash) (types.SafetyLevel, error) {
+func (cl *SupervisorClient) CheckBlock(ctx context.Context,
+	chainID types.ChainID, blockHash common.Hash, blockNumber uint64) (types.SafetyLevel, error) {
 	var result types.SafetyLevel
 	err := cl.client.CallContext(
 		ctx,
 		&result,
-		"supervisor_checkMessage",
-		identifier,
-		logHash)
+		"supervisor_checkBlock",
+		(*hexutil.U256)(&chainID), blockHash, hexutil.Uint64(blockNumber))
 	if err != nil {
-		return types.Invalid, fmt.Errorf("failed to check message (chain %s), (block %v), (index %v), (logHash %s): %w",
-			identifier.ChainID,
-			identifier.BlockNumber,
-			identifier.LogIndex,
-			logHash,
-			err)
+		return types.Unsafe, fmt.Errorf("failed to check Block %s:%d (chain %s): %w", blockHash, blockNumber, chainID, err)
 	}
 	return result, nil
-}
-
-func (cl *SupervisorClient) UnsafeView(ctx context.Context, chainID types.ChainID, unsafe types.ReferenceView) (types.ReferenceView, error) {
-	var result types.ReferenceView
-	err := cl.client.CallContext(
-		ctx,
-		&result,
-		"supervisor_unsafeView",
-		chainID,
-		unsafe)
-	if err != nil {
-		return types.ReferenceView{}, fmt.Errorf("failed to share unsafe block view %s (chain %s): %w", unsafe, chainID, err)
-	}
-	return result, nil
-}
-
-func (cl *SupervisorClient) SafeView(ctx context.Context, chainID types.ChainID, safe types.ReferenceView) (types.ReferenceView, error) {
-	var result types.ReferenceView
-	err := cl.client.CallContext(
-		ctx,
-		&result,
-		"supervisor_safeView",
-		chainID,
-		safe)
-	if err != nil {
-		return types.ReferenceView{}, fmt.Errorf("failed to share safe block view %s (chain %s): %w", safe, chainID, err)
-	}
-	return result, nil
-}
-
-func (cl *SupervisorClient) Finalized(ctx context.Context, chainID types.ChainID) (eth.BlockID, error) {
-	var result eth.BlockID
-	err := cl.client.CallContext(
-		ctx,
-		&result,
-		"supervisor_finalized",
-		chainID)
-	return result, err
-}
-
-func (cl *SupervisorClient) FinalizedL1(ctx context.Context) (eth.BlockRef, error) {
-	var result eth.BlockRef
-	err := cl.client.CallContext(
-		ctx,
-		&result,
-		"supervisor_finalizedL1")
-	return result, err
-}
-
-func (cl *SupervisorClient) CrossDerivedFrom(ctx context.Context, chainID types.ChainID, derived eth.BlockID) (eth.BlockRef, error) {
-	var result eth.BlockRef
-	err := cl.client.CallContext(
-		ctx,
-		&result,
-		"supervisor_crossDerivedFrom",
-		chainID,
-		derived)
-	return result, err
-}
-
-func (cl *SupervisorClient) UpdateLocalUnsafe(ctx context.Context, chainID types.ChainID, head eth.BlockRef) error {
-	return cl.client.CallContext(
-		ctx,
-		nil,
-		"supervisor_updateLocalUnsafe",
-		chainID,
-		head)
-}
-
-func (cl *SupervisorClient) UpdateLocalSafe(ctx context.Context, chainID types.ChainID, derivedFrom eth.L1BlockRef, lastDerived eth.BlockRef) error {
-	return cl.client.CallContext(
-		ctx,
-		nil,
-		"supervisor_updateLocalSafe",
-		chainID,
-		derivedFrom,
-		lastDerived)
-}
-
-func (cl *SupervisorClient) SuperRootAtTimestamp(ctx context.Context, timestamp hexutil.Uint64) (types.SuperRootResponse, error) {
-	var result types.SuperRootResponse
-	err := cl.client.CallContext(
-		ctx,
-		&result,
-		"supervisor_superRootAtTimestamp",
-		timestamp)
-	return result, err
 }
 
 func (cl *SupervisorClient) Close() {

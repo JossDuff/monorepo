@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.15;
 
-// Libraries
-import { GameType, Hash, Claim } from "src/dispute/lib/LibUDT.sol";
+import "src/dispute/lib/LibUDT.sol";
 
 ////////////////////////////////////////////////////////////////
 //                `DisputeGameFactory` Errors                 //
@@ -127,3 +126,13 @@ error L2BlockNumberChallenged();
 
 /// @notice Thrown when an unauthorized address attempts to interact with the game.
 error BadAuth();
+
+////////////////////////////////////////////////////////////////
+//              `AnchorStateRegistry` Errors                  //
+////////////////////////////////////////////////////////////////
+
+/// @notice Thrown when attempting to set an anchor state using an unregistered game.
+error UnregisteredGame();
+
+/// @notice Thrown when attempting to set an anchor state using an invalid game result.
+error InvalidGameStatus();

@@ -14,7 +14,7 @@ import (
 
 func main() {
 	app := cli.NewApp()
-	app.Name = os.Args[0]
+	app.Name = "cannon"
 	app.Usage = "MIPS Fault Proof tool"
 	app.Description = "MIPS Fault Proof tool"
 	app.Commands = []*cli.Command{

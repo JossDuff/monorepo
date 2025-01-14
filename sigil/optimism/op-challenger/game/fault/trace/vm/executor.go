@@ -10,20 +10,21 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/log"
-
 	"github.com/ethereum-optimism/optimism/op-challenger/game/fault/trace/utils"
 	"github.com/ethereum-optimism/optimism/op-challenger/game/fault/types"
-	"github.com/ethereum-optimism/optimism/op-challenger/metrics"
 	"github.com/ethereum-optimism/optimism/op-service/jsonutil"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 const (
 	debugFilename = "debug-info.json"
 )
 
-type Metricer = metrics.TypedVmMetricer
+type Metricer interface {
+	RecordExecutionTime(t time.Duration)
+	RecordMemoryUsed(memoryUsed uint64)
+}
 
 type Config struct {
 	// VM Configuration
@@ -40,7 +41,6 @@ type Config struct {
 	L2               string
 	Server           string // Path to the executable that provides the pre-image oracle server
 	Network          string
-	L2Custom         bool
 	RollupConfigPath string
 	L2GenesisPath    string
 }
@@ -138,16 +138,8 @@ func (e *Executor) DoGenerateProof(ctx context.Context, dir string, begin uint64
 		if info, err := jsonutil.LoadJSON[debugInfo](filepath.Join(dataDir, debugFilename)); err != nil {
 			e.logger.Warn("Failed to load debug metrics", "err", err)
 		} else {
-			memoryUsed = fmt.Sprintf("%d", uint64(info.MemoryUsed))
 			e.metrics.RecordMemoryUsed(uint64(info.MemoryUsed))
-			e.metrics.RecordSteps(info.Steps)
-			e.metrics.RecordRmwSuccessCount(uint64(info.RmwSuccessCount))
-			e.metrics.RecordRmwFailCount(uint64(info.RmwFailCount))
-			e.metrics.RecordMaxStepsBetweenLLAndSC(uint64(info.MaxStepsBetweenLLAndSC))
-			e.metrics.RecordReservationInvalidationCount(uint64(info.ReservationInvalidationCount))
-			e.metrics.RecordForcedPreemptionCount(uint64(info.ForcedPreemptionCount))
-			e.metrics.RecordFailedWakeupCount(uint64(info.FailedWakeupCount))
-			e.metrics.RecordIdleStepCountThread0(uint64(info.IdleStepCountThread0))
+			memoryUsed = fmt.Sprintf("%d", uint64(info.MemoryUsed))
 		}
 	}
 	e.logger.Info("VM execution complete", "time", execTime, "memory", memoryUsed)
@@ -155,13 +147,5 @@ func (e *Executor) DoGenerateProof(ctx context.Context, dir string, begin uint64
 }
 
 type debugInfo struct {
-	MemoryUsed                   hexutil.Uint64 `json:"memory_used"`
-	Steps                        uint64         `json:"total_steps"`
-	RmwSuccessCount              uint64         `json:"rmw_success_count"`
-	RmwFailCount                 uint64         `json:"rmw_fail_count"`
-	MaxStepsBetweenLLAndSC       uint64         `json:"max_steps_between_ll_and_sc"`
-	ReservationInvalidationCount uint64         `json:"reservation_invalidation_count"`
-	ForcedPreemptionCount        uint64         `json:"forced_preemption_count"`
-	FailedWakeupCount            uint64         `json:"failed_wakeup_count"`
-	IdleStepCountThread0         uint64         `json:"idle_step_count_thread_0"`
+	MemoryUsed hexutil.Uint64 `json:"memory_used"`
 }

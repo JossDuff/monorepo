@@ -35,7 +35,6 @@ type Metricer interface {
 	RecordRPCClientRequest(method string) func(err error)
 	RecordRPCClientResponse(method string, err error)
 	SetDerivationIdle(status bool)
-	SetSequencerState(active bool)
 	RecordPipelineReset()
 	RecordSequencingError()
 	RecordPublishingError()
@@ -49,7 +48,7 @@ type Metricer interface {
 	RecordL2Ref(name string, ref eth.L2BlockRef)
 	RecordUnsafePayloadsBuffer(length uint64, memSize uint64, next eth.BlockID)
 	RecordDerivedBatches(batchType string)
-	CountSequencedTxsInBlock(txns int, deposits int)
+	CountSequencedTxs(count int)
 	RecordL1ReorgDepth(d uint64)
 	RecordSequencerInconsistentL1Origin(from eth.BlockID, to eth.BlockID)
 	RecordSequencerReset()
@@ -95,7 +94,6 @@ type Metrics struct {
 	DerivationErrors *metrics.Event
 	SequencingErrors *metrics.Event
 	PublishingErrors *metrics.Event
-	SequencerActive  prometheus.Gauge
 
 	EmittedEvents   *prometheus.CounterVec
 	ProcessedEvents *prometheus.CounterVec
@@ -135,7 +133,7 @@ type Metrics struct {
 
 	L1ReorgDepth prometheus.Histogram
 
-	TransactionsSequencedTotal *prometheus.CounterVec
+	TransactionsSequencedTotal prometheus.Counter
 
 	AltDAMetrics altda.Metricer
 
@@ -211,11 +209,6 @@ func NewMetrics(procName string) *Metrics {
 		DerivationErrors: metrics.NewEvent(factory, ns, "", "derivation_errors", "derivation errors"),
 		SequencingErrors: metrics.NewEvent(factory, ns, "", "sequencing_errors", "sequencing errors"),
 		PublishingErrors: metrics.NewEvent(factory, ns, "", "publishing_errors", "p2p publishing errors"),
-		SequencerActive: factory.NewGauge(prometheus.GaugeOpts{
-			Namespace: ns,
-			Name:      "sequencer_active",
-			Help:      "1 if sequencer active, 0 otherwise",
-		}),
 
 		EmittedEvents: factory.NewCounterVec(
 			prometheus.CounterOpts{
@@ -268,11 +261,12 @@ func NewMetrics(procName string) *Metrics {
 			Help:      "Histogram of L1 Reorg Depths",
 		}),
 
-		TransactionsSequencedTotal: factory.NewCounterVec(prometheus.CounterOpts{
+		TransactionsSequencedTotal: factory.NewGauge(prometheus.GaugeOpts{
 			Namespace: ns,
 			Name:      "transactions_sequenced_total",
 			Help:      "Count of total transactions sequenced",
-		}, []string{"type"}),
+		}),
+
 		PeerCount: factory.NewGauge(prometheus.GaugeOpts{
 			Namespace: ns,
 			Subsystem: "p2p",
@@ -476,14 +470,6 @@ func (m *Metrics) SetDerivationIdle(status bool) {
 	m.DerivationIdle.Set(val)
 }
 
-func (m *Metrics) SetSequencerState(active bool) {
-	var val float64
-	if active {
-		val = 1
-	}
-	m.SequencerActive.Set(val)
-}
-
 func (m *Metrics) RecordPipelineReset() {
 	m.PipelineResets.Record()
 }
@@ -530,9 +516,8 @@ func (m *Metrics) RecordDerivedBatches(batchType string) {
 	m.DerivedBatches.Record(batchType)
 }
 
-func (m *Metrics) CountSequencedTxsInBlock(txns int, deposits int) {
-	m.TransactionsSequencedTotal.WithLabelValues("deposits").Add(float64(deposits))
-	m.TransactionsSequencedTotal.WithLabelValues("txns").Add(float64(txns - deposits))
+func (m *Metrics) CountSequencedTxs(count int) {
+	m.TransactionsSequencedTotal.Add(float64(count))
 }
 
 func (m *Metrics) RecordL1ReorgDepth(d uint64) {
@@ -701,9 +686,6 @@ func (n *noopMetricer) RecordUp() {
 func (n *noopMetricer) SetDerivationIdle(status bool) {
 }
 
-func (m *noopMetricer) SetSequencerState(active bool) {
-}
-
 func (n *noopMetricer) RecordPipelineReset() {
 }
 
@@ -743,7 +725,7 @@ func (n *noopMetricer) RecordUnsafePayloadsBuffer(length uint64, memSize uint64,
 func (n *noopMetricer) RecordDerivedBatches(batchType string) {
 }
 
-func (n *noopMetricer) CountSequencedTxsInBlock(txns int, deposits int) {
+func (n *noopMetricer) CountSequencedTxs(count int) {
 }
 
 func (n *noopMetricer) RecordL1ReorgDepth(d uint64) {

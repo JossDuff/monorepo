@@ -129,14 +129,8 @@ func (s *stubTxMgr) Send(ctx context.Context, candidate txmgr.TxCandidate) (*typ
 	return <-ch, nil
 }
 
-// SendAsync simply wraps Send to make it non blocking. It does not guarantee transaction nonce ordering,
-// unlike the production txMgr.
 func (s *stubTxMgr) SendAsync(ctx context.Context, candidate txmgr.TxCandidate, ch chan txmgr.SendResponse) {
-	go func() {
-		receipt, err := s.Send(ctx, candidate)
-		resp := txmgr.SendResponse{Receipt: receipt, Err: err}
-		ch <- resp
-	}()
+	panic("unimplemented")
 }
 
 func (s *stubTxMgr) recordTx(candidate txmgr.TxCandidate) chan *types.Receipt {

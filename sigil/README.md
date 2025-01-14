@@ -28,6 +28,20 @@ debugging isolated proof requests and isn't used in prod.
 
 Contains the execution node binary for the op-stack chain.
 
+## jwt.txt
+
+`op-geth` and `op-node` communicate over the engine API authrpc. This communication
+is secured using a shared secret. You will need to generate a shared secret and
+provide it to both `op-geth` and `op-node` when you start them. In this case, the
+secret takes the form of a 32 byte hex string. Run the following command to
+generate a random 32 byte hex string:
+
+```
+openssl rand -hex 32 > jwt.txt
+```
+
+## genesis.json
+
 # /optimism
 
 original repo: <https://github.com/ethereum-optimism/optimism/>

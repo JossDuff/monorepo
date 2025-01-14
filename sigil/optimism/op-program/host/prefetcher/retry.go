@@ -4,8 +4,6 @@ import (
 	"context"
 	"math"
 
-	"github.com/ethereum-optimism/optimism/op-node/rollup"
-	hosttypes "github.com/ethereum-optimism/optimism/op-program/host/types"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-service/retry"
 	"github.com/ethereum/go-ethereum/common"
@@ -99,16 +97,8 @@ var _ L1BlobSource = (*RetryingL1BlobSource)(nil)
 
 type RetryingL2Source struct {
 	logger   log.Logger
-	source   hosttypes.L2Source
+	source   L2Source
 	strategy retry.Strategy
-}
-
-func (s *RetryingL2Source) RollupConfig() *rollup.Config {
-	return s.source.RollupConfig()
-}
-
-func (s *RetryingL2Source) ExperimentalEnabled() bool {
-	return s.source.ExperimentalEnabled()
 }
 
 func (s *RetryingL2Source) InfoAndTxsByHash(ctx context.Context, blockHash common.Hash) (eth.BlockInfo, types.Transactions, error) {
@@ -141,29 +131,18 @@ func (s *RetryingL2Source) CodeByHash(ctx context.Context, hash common.Hash) ([]
 	})
 }
 
-func (s *RetryingL2Source) OutputByRoot(ctx context.Context, blockRoot common.Hash) (eth.Output, error) {
+func (s *RetryingL2Source) OutputByRoot(ctx context.Context, root common.Hash) (eth.Output, error) {
 	return retry.Do(ctx, maxAttempts, s.strategy, func() (eth.Output, error) {
-		o, err := s.source.OutputByRoot(ctx, blockRoot)
+		o, err := s.source.OutputByRoot(ctx, root)
 		if err != nil {
-			s.logger.Warn("Failed to fetch l2 output", "block", blockRoot, "err", err)
+			s.logger.Warn("Failed to fetch l2 output", "root", root, "err", err)
 			return o, err
 		}
 		return o, nil
 	})
 }
 
-func (s *RetryingL2Source) OutputByNumber(ctx context.Context, blockNum uint64) (eth.Output, error) {
-	return retry.Do(ctx, maxAttempts, s.strategy, func() (eth.Output, error) {
-		o, err := s.source.OutputByNumber(ctx, blockNum)
-		if err != nil {
-			s.logger.Warn("Failed to fetch l2 output", "block", blockNum, "err", err)
-			return o, err
-		}
-		return o, nil
-	})
-}
-
-func NewRetryingL2Source(logger log.Logger, source hosttypes.L2Source) *RetryingL2Source {
+func NewRetryingL2Source(logger log.Logger, source L2Source) *RetryingL2Source {
 	return &RetryingL2Source{
 		logger:   logger,
 		source:   source,
@@ -171,4 +150,4 @@ func NewRetryingL2Source(logger log.Logger, source hosttypes.L2Source) *Retrying
 	}
 }
 
-var _ hosttypes.L2Source = (*RetryingL2Source)(nil)
+var _ L2Source = (*RetryingL2Source)(nil)

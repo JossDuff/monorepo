@@ -12,25 +12,25 @@ import (
 	"github.com/ethereum-optimism/optimism/op-challenger/game/fault/trace/utils"
 	"github.com/ethereum-optimism/optimism/op-challenger/game/fault/trace/vm"
 	"github.com/ethereum-optimism/optimism/op-e2e/actions/helpers"
-	"github.com/ethereum-optimism/optimism/op-node/rollup"
 	"github.com/ethereum-optimism/optimism/op-program/client/claim"
 	"github.com/stretchr/testify/require"
 )
 
-var konaHostPath string
+var konaHostPath, konaClientPath string
 
 func init() {
 	konaHostPath = os.Getenv("KONA_HOST_PATH")
+	konaClientPath = os.Getenv("KONA_CLIENT_PATH")
 }
 
 func IsKonaConfigured() bool {
-	return konaHostPath != ""
+	return konaHostPath != "" && konaClientPath != ""
 }
 
 func RunKonaNative(
 	t helpers.Testing,
 	workDir string,
-	rollupCfg *rollup.Config,
+	env *L2FaultProofEnv,
 	l1Rpc string,
 	l1BeaconRpc string,
 	l2Rpc string,
@@ -38,7 +38,7 @@ func RunKonaNative(
 ) error {
 	// Write rollup config to tempdir.
 	rollupConfigPath := filepath.Join(workDir, "rollup.json")
-	ser, err := json.Marshal(rollupCfg)
+	ser, err := json.Marshal(env.Sd.RollupCfg)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(rollupConfigPath, ser, fs.ModePerm))
 
@@ -57,7 +57,7 @@ func RunKonaNative(
 		L2Claim:       fixtureInputs.L2Claim,
 		L2BlockNumber: big.NewInt(int64(fixtureInputs.L2BlockNumber)),
 	}
-	hostCmd, err := vm.NewNativeKonaExecutor().OracleCommand(vmCfg, workDir, inputs)
+	hostCmd, err := vm.NewNativeKonaExecutor(konaClientPath).OracleCommand(vmCfg, workDir, inputs)
 	require.NoError(t, err)
 
 	cmd := exec.Command(hostCmd[0], hostCmd[1:]...)

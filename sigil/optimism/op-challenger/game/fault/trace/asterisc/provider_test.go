@@ -23,7 +23,6 @@ import (
 
 //go:embed test_data
 var testData embed.FS
-var asteriscWitnessLen = 362
 
 func PositionFromTraceIndex(provider *AsteriscTraceProvider, idx *big.Int) types.Position {
 	return types.NewPosition(provider.gameDepth, idx)
@@ -227,7 +226,7 @@ func setupWithTestData(t *testing.T, dataDir string, prestate string) (*Asterisc
 		generator:      generator,
 		prestate:       filepath.Join(dataDir, prestate),
 		gameDepth:      63,
-		stateConverter: generator,
+		stateConverter: &StateConverter{},
 	}, generator
 }
 
@@ -235,20 +234,6 @@ type stubGenerator struct {
 	generated  []int // Using int makes assertions easier
 	finalState *VMState
 	proof      *utils.ProofData
-
-	finalStatePath string
-}
-
-func (e *stubGenerator) ConvertStateToProof(ctx context.Context, statePath string) (*utils.ProofData, uint64, bool, error) {
-	if statePath == e.finalStatePath {
-		return &utils.ProofData{
-			ClaimValue: e.finalState.StateHash,
-			StateData:  e.finalState.Witness,
-			ProofData:  []byte{},
-		}, e.finalState.Step, e.finalState.Exited, nil
-	} else {
-		return nil, 0, false, fmt.Errorf("loading unexpected state: %s, only support: %s", statePath, e.finalStatePath)
-	}
 }
 
 func (e *stubGenerator) GenerateProof(ctx context.Context, dir string, i uint64) error {
@@ -259,7 +244,6 @@ func (e *stubGenerator) GenerateProof(ctx context.Context, dir string, i uint64)
 	if e.finalState != nil && e.finalState.Step <= i {
 		// Requesting a trace index past the end of the trace
 		proofFile = vm.FinalStatePath(dir, false)
-		e.finalStatePath = proofFile
 		data, err = json.Marshal(e.finalState)
 		if err != nil {
 			return err

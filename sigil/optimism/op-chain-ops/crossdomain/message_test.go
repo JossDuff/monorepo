@@ -55,7 +55,7 @@ func TestEncode(t *testing.T) {
 	})
 }
 
-// TestHash tests the hash of a CrossDomainMessage. The assertion was
+// TestEncode tests the hash of a CrossDomainMessage. The assertion was
 // created using solidity.
 func TestHash(t *testing.T) {
 	t.Parallel()

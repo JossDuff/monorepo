@@ -8,7 +8,6 @@ import (
 	"io"
 
 	"github.com/ethereum-optimism/optimism/op-node/rollup"
-	"github.com/ethereum-optimism/optimism/op-node/rollup/derive/params"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -54,7 +53,8 @@ type Compressor interface {
 type ChannelOut interface {
 	ID() ChannelID
 	Reset() error
-	AddBlock(*rollup.Config, *types.Block) (*L1BlockInfo, error)
+	AddBlock(*rollup.Config, *types.Block) error
+	AddSingularBatch(*SingularBatch, uint64) error
 	InputBytes() int
 	ReadyBytes() int
 	Flush() error
@@ -107,27 +107,31 @@ func (co *SingularChannelOut) Reset() error {
 	return err
 }
 
-// AddBlock adds a block to the channel. It returns the block's L1BlockInfo
+// AddBlock adds a block to the channel. It returns the RLP encoded byte size
 // and an error if there is a problem adding the block. The only sentinel error
 // that it returns is ErrTooManyRLPBytes. If this error is returned, the channel
 // should be closed and a new one should be made.
-func (co *SingularChannelOut) AddBlock(rollupCfg *rollup.Config, block *types.Block) (*L1BlockInfo, error) {
+func (co *SingularChannelOut) AddBlock(rollupCfg *rollup.Config, block *types.Block) error {
 	if co.closed {
-		return nil, ErrChannelOutAlreadyClosed
+		return ErrChannelOutAlreadyClosed
 	}
 
 	batch, l1Info, err := BlockToSingularBatch(rollupCfg, block)
 	if err != nil {
-		return nil, fmt.Errorf("converting block to batch: %w", err)
+		return err
 	}
-	return l1Info, co.addSingularBatch(batch, l1Info.SequenceNumber)
+	return co.AddSingularBatch(batch, l1Info.SequenceNumber)
 }
 
-// addSingularBatch adds a batch to the channel. It returns
-// an error if there is a problem adding the batch. The only sentinel error
+// AddSingularBatch adds a batch to the channel. It returns the RLP encoded byte size
+// and an error if there is a problem adding the batch. The only sentinel error
 // that it returns is ErrTooManyRLPBytes. If this error is returned, the channel
 // should be closed and a new one should be made.
-func (co *SingularChannelOut) addSingularBatch(batch *SingularBatch, _ uint64) error {
+//
+// AddSingularBatch should be used together with BlockToBatch if you need to access the
+// BatchData before adding a block to the channel. It isn't possible to access
+// the batch data with AddBlock.
+func (co *SingularChannelOut) AddSingularBatch(batch *SingularBatch, _ uint64) error {
 	if co.closed {
 		return ErrChannelOutAlreadyClosed
 	}
@@ -276,7 +280,7 @@ func ForceCloseTxData(frames []Frame) ([]byte, error) {
 	}
 
 	var out bytes.Buffer
-	out.WriteByte(params.DerivationVersion0)
+	out.WriteByte(DerivationVersion0)
 
 	if !closed {
 		f := Frame{

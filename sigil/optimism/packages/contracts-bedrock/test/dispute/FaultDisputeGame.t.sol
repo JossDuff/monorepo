@@ -2,15 +2,14 @@
 pragma solidity ^0.8.15;
 
 // Testing
+import { Test } from "forge-std/Test.sol";
 import { Vm } from "forge-std/Vm.sol";
 import { DisputeGameFactory_Init } from "test/dispute/DisputeGameFactory.t.sol";
 import { AlphabetVM } from "test/mocks/AlphabetVM.sol";
-import { stdError } from "forge-std/StdError.sol";
-
-// Scripts
-import { DeployUtils } from "scripts/libraries/DeployUtils.sol";
 
 // Contracts
+import { PreimageOracle } from "src/cannon/PreimageOracle.sol";
+import { FaultDisputeGame } from "src/dispute/FaultDisputeGame.sol";
 import { DisputeActor, HonestDisputeActor } from "test/actors/FaultDisputeActors.sol";
 
 // Libraries
@@ -23,11 +22,11 @@ import "src/dispute/lib/Types.sol";
 import "src/dispute/lib/Errors.sol";
 
 // Interfaces
-import { IDisputeGame } from "interfaces/dispute/IDisputeGame.sol";
-import { IPreimageOracle } from "interfaces/dispute/IBigStepper.sol";
-import { IAnchorStateRegistry } from "interfaces/dispute/IAnchorStateRegistry.sol";
-import { IFaultDisputeGame } from "interfaces/dispute/IFaultDisputeGame.sol";
-import { IDelayedWETH } from "interfaces/dispute/IDelayedWETH.sol";
+import { IDisputeGame } from "src/dispute/interfaces/IDisputeGame.sol";
+import { IPreimageOracle } from "src/dispute/interfaces/IBigStepper.sol";
+import { IAnchorStateRegistry } from "src/dispute/interfaces/IAnchorStateRegistry.sol";
+import { IFaultDisputeGame } from "src/dispute/interfaces/IFaultDisputeGame.sol";
+import { IDelayedWETH } from "src/dispute/interfaces/IDelayedWETH.sol";
 
 contract FaultDisputeGame_Init is DisputeGameFactory_Init {
     /// @dev The type of the game being tested.
@@ -47,58 +46,38 @@ contract FaultDisputeGame_Init is DisputeGameFactory_Init {
 
     function init(Claim rootClaim, Claim absolutePrestate, uint256 l2BlockNumber) public {
         // Set the time to a realistic date.
-        if (!isForkTest()) {
-            vm.warp(1690906994);
-        }
+        vm.warp(1690906994);
 
         // Set the extra data for the game creation
         extraData = abi.encode(l2BlockNumber);
 
         // Set preimage oracle challenge period to something arbitrary (4 seconds) just so we can
         // actually test the clock extensions later on. This is not a realistic value.
-        AlphabetVM _vm = new AlphabetVM(
-            absolutePrestate,
-            IPreimageOracle(
-                DeployUtils.create1({
-                    _name: "PreimageOracle",
-                    _args: DeployUtils.encodeConstructor(abi.encodeCall(IPreimageOracle.__constructor__, (0, 4)))
+        PreimageOracle oracle = new PreimageOracle(0, 4);
+        AlphabetVM _vm = new AlphabetVM(absolutePrestate, oracle);
+
+        // Deploy an implementation of the fault game
+        gameImpl = IFaultDisputeGame(
+            address(
+                new FaultDisputeGame({
+                    _gameType: GAME_TYPE,
+                    _absolutePrestate: absolutePrestate,
+                    _maxGameDepth: 2 ** 3,
+                    _splitDepth: 2 ** 2,
+                    _clockExtension: Duration.wrap(3 hours),
+                    _maxClockDuration: Duration.wrap(3.5 days),
+                    _vm: _vm,
+                    _weth: delayedWeth,
+                    _anchorStateRegistry: anchorStateRegistry,
+                    _l2ChainId: 10
                 })
             )
         );
 
-        // Deploy an implementation of the fault game
-        gameImpl = IFaultDisputeGame(
-            DeployUtils.create1({
-                _name: "FaultDisputeGame",
-                _args: DeployUtils.encodeConstructor(
-                    abi.encodeCall(
-                        IFaultDisputeGame.__constructor__,
-                        (
-                            IFaultDisputeGame.GameConstructorParams({
-                                gameType: GAME_TYPE,
-                                absolutePrestate: absolutePrestate,
-                                maxGameDepth: 2 ** 3,
-                                splitDepth: 2 ** 2,
-                                clockExtension: Duration.wrap(3 hours),
-                                maxClockDuration: Duration.wrap(3.5 days),
-                                vm: _vm,
-                                weth: delayedWeth,
-                                anchorStateRegistry: anchorStateRegistry,
-                                l2ChainId: 10
-                            })
-                        )
-                    )
-                )
-            })
-        );
-
         // Register the game implementation with the factory.
         disputeGameFactory.setImplementation(GAME_TYPE, gameImpl);
-        uint256 bondAmount = disputeGameFactory.initBonds(GAME_TYPE);
         // Create a new game.
-        gameProxy = IFaultDisputeGame(
-            payable(address(disputeGameFactory.create{ value: bondAmount }(GAME_TYPE, rootClaim, extraData)))
-        );
+        gameProxy = IFaultDisputeGame(payable(address(disputeGameFactory.create(GAME_TYPE, rootClaim, extraData))));
 
         // Check immutables
         assertEq(gameProxy.gameType().raw(), GAME_TYPE.raw());
@@ -144,37 +123,21 @@ contract FaultDisputeGame_Test is FaultDisputeGame_Init {
     /// @dev Tests that the constructor of the `FaultDisputeGame` reverts when the `MAX_GAME_DEPTH` parameter is
     ///      greater  than `LibPosition.MAX_POSITION_BITLEN - 1`.
     function testFuzz_constructor_maxDepthTooLarge_reverts(uint256 _maxGameDepth) public {
-        IPreimageOracle oracle = IPreimageOracle(
-            DeployUtils.create1({
-                _name: "PreimageOracle",
-                _args: DeployUtils.encodeConstructor(abi.encodeCall(IPreimageOracle.__constructor__, (0, 0)))
-            })
-        );
-        AlphabetVM alphabetVM = new AlphabetVM(absolutePrestate, oracle);
+        AlphabetVM alphabetVM = new AlphabetVM(absolutePrestate, new PreimageOracle(0, 0));
 
         _maxGameDepth = bound(_maxGameDepth, LibPosition.MAX_POSITION_BITLEN, type(uint256).max - 1);
         vm.expectRevert(MaxDepthTooLarge.selector);
-        DeployUtils.create1({
-            _name: "FaultDisputeGame",
-            _args: DeployUtils.encodeConstructor(
-                abi.encodeCall(
-                    IFaultDisputeGame.__constructor__,
-                    (
-                        IFaultDisputeGame.GameConstructorParams({
-                            gameType: GAME_TYPE,
-                            absolutePrestate: absolutePrestate,
-                            maxGameDepth: _maxGameDepth,
-                            splitDepth: _maxGameDepth + 1,
-                            clockExtension: Duration.wrap(3 hours),
-                            maxClockDuration: Duration.wrap(3.5 days),
-                            vm: alphabetVM,
-                            weth: IDelayedWETH(payable(address(0))),
-                            anchorStateRegistry: IAnchorStateRegistry(address(0)),
-                            l2ChainId: 10
-                        })
-                    )
-                )
-            )
+        new FaultDisputeGame({
+            _gameType: GAME_TYPE,
+            _absolutePrestate: absolutePrestate,
+            _maxGameDepth: _maxGameDepth,
+            _splitDepth: _maxGameDepth + 1,
+            _clockExtension: Duration.wrap(3 hours),
+            _maxClockDuration: Duration.wrap(3.5 days),
+            _vm: alphabetVM,
+            _weth: IDelayedWETH(payable(address(0))),
+            _anchorStateRegistry: IAnchorStateRegistry(address(0)),
+            _l2ChainId: 10
         });
     }
 
@@ -184,121 +147,72 @@ contract FaultDisputeGame_Test is FaultDisputeGame_Init {
     function testFuzz_constructor_oracleChallengePeriodTooLarge_reverts(uint256 _challengePeriod) public {
         _challengePeriod = bound(_challengePeriod, uint256(type(uint64).max) + 1, type(uint256).max);
 
-        IPreimageOracle oracle = IPreimageOracle(
-            DeployUtils.create1({
-                _name: "PreimageOracle",
-                _args: DeployUtils.encodeConstructor(abi.encodeCall(IPreimageOracle.__constructor__, (0, 0)))
-            })
-        );
-        AlphabetVM alphabetVM = new AlphabetVM(absolutePrestate, IPreimageOracle(address(oracle)));
+        PreimageOracle oracle = new PreimageOracle(0, 0);
+        AlphabetVM alphabetVM = new AlphabetVM(absolutePrestate, oracle);
 
         // PreimageOracle constructor will revert if the challenge period is too large, so we need
         // to mock the call to pretend this is a bugged implementation where the challenge period
         // is allowed to be too large.
-        vm.mockCall(address(oracle), abi.encodeCall(IPreimageOracle.challengePeriod, ()), abi.encode(_challengePeriod));
+        vm.mockCall(
+            address(oracle), abi.encodeWithSelector(oracle.challengePeriod.selector), abi.encode(_challengePeriod)
+        );
 
         vm.expectRevert(InvalidChallengePeriod.selector);
-        DeployUtils.create1({
-            _name: "FaultDisputeGame",
-            _args: DeployUtils.encodeConstructor(
-                abi.encodeCall(
-                    IFaultDisputeGame.__constructor__,
-                    (
-                        IFaultDisputeGame.GameConstructorParams({
-                            gameType: GAME_TYPE,
-                            absolutePrestate: absolutePrestate,
-                            maxGameDepth: 2 ** 3,
-                            splitDepth: 2 ** 2,
-                            clockExtension: Duration.wrap(3 hours),
-                            maxClockDuration: Duration.wrap(3.5 days),
-                            vm: alphabetVM,
-                            weth: IDelayedWETH(payable(address(0))),
-                            anchorStateRegistry: IAnchorStateRegistry(address(0)),
-                            l2ChainId: 10
-                        })
-                    )
-                )
-            )
+        new FaultDisputeGame({
+            _gameType: GAME_TYPE,
+            _absolutePrestate: absolutePrestate,
+            _maxGameDepth: 2 ** 3,
+            _splitDepth: 2 ** 2,
+            _clockExtension: Duration.wrap(3 hours),
+            _maxClockDuration: Duration.wrap(3.5 days),
+            _vm: alphabetVM,
+            _weth: IDelayedWETH(payable(address(0))),
+            _anchorStateRegistry: IAnchorStateRegistry(address(0)),
+            _l2ChainId: 10
         });
     }
 
     /// @dev Tests that the constructor of the `FaultDisputeGame` reverts when the `_splitDepth`
     ///      parameter is greater than or equal to the `MAX_GAME_DEPTH`
     function testFuzz_constructor_invalidSplitDepth_reverts(uint256 _splitDepth) public {
-        AlphabetVM alphabetVM = new AlphabetVM(
-            absolutePrestate,
-            IPreimageOracle(
-                DeployUtils.create1({
-                    _name: "PreimageOracle",
-                    _args: DeployUtils.encodeConstructor(abi.encodeCall(IPreimageOracle.__constructor__, (0, 0)))
-                })
-            )
-        );
+        AlphabetVM alphabetVM = new AlphabetVM(absolutePrestate, new PreimageOracle(0, 0));
 
         uint256 maxGameDepth = 2 ** 3;
         _splitDepth = bound(_splitDepth, maxGameDepth - 1, type(uint256).max);
         vm.expectRevert(InvalidSplitDepth.selector);
-        DeployUtils.create1({
-            _name: "FaultDisputeGame",
-            _args: DeployUtils.encodeConstructor(
-                abi.encodeCall(
-                    IFaultDisputeGame.__constructor__,
-                    (
-                        IFaultDisputeGame.GameConstructorParams({
-                            gameType: GAME_TYPE,
-                            absolutePrestate: absolutePrestate,
-                            maxGameDepth: maxGameDepth,
-                            splitDepth: _splitDepth,
-                            clockExtension: Duration.wrap(3 hours),
-                            maxClockDuration: Duration.wrap(3.5 days),
-                            vm: alphabetVM,
-                            weth: IDelayedWETH(payable(address(0))),
-                            anchorStateRegistry: IAnchorStateRegistry(address(0)),
-                            l2ChainId: 10
-                        })
-                    )
-                )
-            )
+        new FaultDisputeGame({
+            _gameType: GAME_TYPE,
+            _absolutePrestate: absolutePrestate,
+            _maxGameDepth: maxGameDepth,
+            _splitDepth: _splitDepth,
+            _clockExtension: Duration.wrap(3 hours),
+            _maxClockDuration: Duration.wrap(3.5 days),
+            _vm: alphabetVM,
+            _weth: IDelayedWETH(payable(address(0))),
+            _anchorStateRegistry: IAnchorStateRegistry(address(0)),
+            _l2ChainId: 10
         });
     }
 
     /// @dev Tests that the constructor of the `FaultDisputeGame` reverts when the `_splitDepth`
     ///      parameter is less than the minimum split depth (currently 2).
     function testFuzz_constructor_lowSplitDepth_reverts(uint256 _splitDepth) public {
-        AlphabetVM alphabetVM = new AlphabetVM(
-            absolutePrestate,
-            IPreimageOracle(
-                DeployUtils.create1({
-                    _name: "PreimageOracle",
-                    _args: DeployUtils.encodeConstructor(abi.encodeCall(IPreimageOracle.__constructor__, (0, 0)))
-                })
-            )
-        );
+        AlphabetVM alphabetVM = new AlphabetVM(absolutePrestate, new PreimageOracle(0, 0));
 
         uint256 minSplitDepth = 2;
         _splitDepth = bound(_splitDepth, 0, minSplitDepth - 1);
         vm.expectRevert(InvalidSplitDepth.selector);
-        DeployUtils.create1({
-            _name: "FaultDisputeGame",
-            _args: DeployUtils.encodeConstructor(
-                abi.encodeCall(
-                    IFaultDisputeGame.__constructor__,
-                    (
-                        IFaultDisputeGame.GameConstructorParams({
-                            gameType: GAME_TYPE,
-                            absolutePrestate: absolutePrestate,
-                            maxGameDepth: 2 ** 3,
-                            splitDepth: _splitDepth,
-                            clockExtension: Duration.wrap(3 hours),
-                            maxClockDuration: Duration.wrap(3.5 days),
-                            vm: alphabetVM,
-                            weth: IDelayedWETH(payable(address(0))),
-                            anchorStateRegistry: IAnchorStateRegistry(address(0)),
-                            l2ChainId: 10
-                        })
-                    )
-                )
-            )
+        new FaultDisputeGame({
+            _gameType: GAME_TYPE,
+            _absolutePrestate: absolutePrestate,
+            _maxGameDepth: 2 ** 3,
+            _splitDepth: _splitDepth,
+            _clockExtension: Duration.wrap(3 hours),
+            _maxClockDuration: Duration.wrap(3.5 days),
+            _vm: alphabetVM,
+            _weth: IDelayedWETH(payable(address(0))),
+            _anchorStateRegistry: IAnchorStateRegistry(address(0)),
+            _l2ChainId: 10
         });
     }
 
@@ -310,15 +224,7 @@ contract FaultDisputeGame_Test is FaultDisputeGame_Init {
     )
         public
     {
-        AlphabetVM alphabetVM = new AlphabetVM(
-            absolutePrestate,
-            IPreimageOracle(
-                DeployUtils.create1({
-                    _name: "PreimageOracle",
-                    _args: DeployUtils.encodeConstructor(abi.encodeCall(IPreimageOracle.__constructor__, (0, 0)))
-                })
-            )
-        );
+        AlphabetVM alphabetVM = new AlphabetVM(absolutePrestate, new PreimageOracle(0, 0));
 
         // Force the clock extension * 2 to be greater than the max clock duration, but keep things within
         // bounds of the uint64 type.
@@ -326,27 +232,17 @@ contract FaultDisputeGame_Test is FaultDisputeGame_Init {
         _clockExtension = uint64(bound(_clockExtension, _maxClockDuration / 2 + 1, type(uint64).max / 2));
 
         vm.expectRevert(InvalidClockExtension.selector);
-        DeployUtils.create1({
-            _name: "FaultDisputeGame",
-            _args: DeployUtils.encodeConstructor(
-                abi.encodeCall(
-                    IFaultDisputeGame.__constructor__,
-                    (
-                        IFaultDisputeGame.GameConstructorParams({
-                            gameType: GAME_TYPE,
-                            absolutePrestate: absolutePrestate,
-                            maxGameDepth: 16,
-                            splitDepth: 8,
-                            clockExtension: Duration.wrap(_clockExtension),
-                            maxClockDuration: Duration.wrap(_maxClockDuration),
-                            vm: alphabetVM,
-                            weth: IDelayedWETH(payable(address(0))),
-                            anchorStateRegistry: IAnchorStateRegistry(address(0)),
-                            l2ChainId: 10
-                        })
-                    )
-                )
-            )
+        new FaultDisputeGame({
+            _gameType: GAME_TYPE,
+            _absolutePrestate: absolutePrestate,
+            _maxGameDepth: 16,
+            _splitDepth: 8,
+            _clockExtension: Duration.wrap(_clockExtension),
+            _maxClockDuration: Duration.wrap(_maxClockDuration),
+            _vm: alphabetVM,
+            _weth: IDelayedWETH(payable(address(0))),
+            _anchorStateRegistry: IAnchorStateRegistry(address(0)),
+            _l2ChainId: 10
         });
     }
 
@@ -465,17 +361,6 @@ contract FaultDisputeGame_Test is FaultDisputeGame_Init {
         gameProxy.initialize();
     }
 
-    /// @dev Tests that startingOutputRoot and it's getters are set correctly.
-    function test_startingOutputRootGetters_succeeds() public view {
-        (Hash root, uint256 l2BlockNumber) = gameProxy.startingOutputRoot();
-        (Hash anchorRoot, uint256 anchorRootBlockNumber) = anchorStateRegistry.anchors(GAME_TYPE);
-
-        assertEq(gameProxy.startingBlockNumber(), l2BlockNumber);
-        assertEq(gameProxy.startingBlockNumber(), anchorRootBlockNumber);
-        assertEq(Hash.unwrap(gameProxy.startingRootHash()), Hash.unwrap(root));
-        assertEq(Hash.unwrap(gameProxy.startingRootHash()), Hash.unwrap(anchorRoot));
-    }
-
     /// @dev Tests that the user cannot control the first 4 bytes of the CWIA data, disallowing them to control the
     ///      entrypoint when no calldata is provided to a call.
     function test_cwiaCalldata_userCannotControlSelector_succeeds() public {
@@ -562,11 +447,11 @@ contract FaultDisputeGame_Test is FaultDisputeGame_Init {
         Claim claim = _dummyClaim();
 
         // Expect an out of bounds revert for an attack
-        vm.expectRevert(stdError.indexOOBError);
+        vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x32));
         gameProxy.attack(_dummyClaim(), 1, claim);
 
         // Expect an out of bounds revert for a defense
-        vm.expectRevert(stdError.indexOOBError);
+        vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x32));
         gameProxy.defend(_dummyClaim(), 1, claim);
     }
 
@@ -907,7 +792,7 @@ contract FaultDisputeGame_Test is FaultDisputeGame_Init {
         IDisputeGame game = disputeGameFactory.create(GAME_TYPE, Claim.wrap(outputRoot), abi.encode(_l2BlockNumber + 1));
 
         // Challenge the L2 block number.
-        IFaultDisputeGame fdg = IFaultDisputeGame(address(game));
+        FaultDisputeGame fdg = FaultDisputeGame(address(game));
         fdg.challengeRootL2Block(outputRootProof, headerRLP);
 
         // Ensure that a duplicate challenge reverts.
@@ -946,7 +831,7 @@ contract FaultDisputeGame_Test is FaultDisputeGame_Init {
         IDisputeGame game = disputeGameFactory.create{ value: 0.1 ether }(
             GAME_TYPE, Claim.wrap(outputRoot), abi.encode(_l2BlockNumber + 1)
         );
-        IFaultDisputeGame fdg = IFaultDisputeGame(address(game));
+        FaultDisputeGame fdg = FaultDisputeGame(address(game));
 
         // Attack the root as 0xb0b
         uint256 bond = _getRequiredBond(0);
@@ -1003,7 +888,7 @@ contract FaultDisputeGame_Test is FaultDisputeGame_Init {
         IDisputeGame game = disputeGameFactory.create(GAME_TYPE, Claim.wrap(outputRoot), abi.encode(_l2BlockNumber));
 
         // Challenge the L2 block number.
-        IFaultDisputeGame fdg = IFaultDisputeGame(address(game));
+        FaultDisputeGame fdg = FaultDisputeGame(address(game));
         vm.expectRevert(BlockNumberMatches.selector);
         fdg.challengeRootL2Block(outputRootProof, headerRLP);
 
@@ -1033,7 +918,7 @@ contract FaultDisputeGame_Test is FaultDisputeGame_Init {
 
         // Create the dispute game with the output root at the wrong L2 block number.
         IDisputeGame game = disputeGameFactory.create(GAME_TYPE, Claim.wrap(outputRoot), abi.encode(1));
-        IFaultDisputeGame fdg = IFaultDisputeGame(address(game));
+        FaultDisputeGame fdg = FaultDisputeGame(address(game));
 
         vm.expectRevert(InvalidHeaderRLP.selector);
         fdg.challengeRootL2Block(outputRootProof, hex"");
@@ -1046,7 +931,7 @@ contract FaultDisputeGame_Test is FaultDisputeGame_Init {
 
         // Create the dispute game with the output root at the wrong L2 block number.
         IDisputeGame game = disputeGameFactory.create(GAME_TYPE, Claim.wrap(outputRoot), abi.encode(1));
-        IFaultDisputeGame fdg = IFaultDisputeGame(address(game));
+        FaultDisputeGame fdg = FaultDisputeGame(address(game));
 
         vm.expectRevert(InvalidHeaderRLP.selector);
         fdg.challengeRootL2Block(outputRootProof, hex"");
@@ -1730,14 +1615,14 @@ contract FaultDisputeGame_Test is FaultDisputeGame_Init {
     /// resolves in favor of the defender but the game state is not newer than the anchor state.
     function test_resolve_validOlderStateSameAnchor_succeeds() public {
         // Mock the game block to be older than the game state.
-        vm.mockCall(address(gameProxy), abi.encodeCall(gameProxy.l2BlockNumber, ()), abi.encode(0));
+        vm.mockCall(address(gameProxy), abi.encodeWithSelector(gameProxy.l2BlockNumber.selector), abi.encode(0));
 
         // Confirm that the anchor state is newer than the game state.
         (Hash root, uint256 l2BlockNumber) = anchorStateRegistry.anchors(gameProxy.gameType());
         assert(l2BlockNumber >= gameProxy.l2BlockNumber());
 
         // Resolve the game.
-        vm.mockCall(address(gameProxy), abi.encodeCall(gameProxy.l2BlockNumber, ()), abi.encode(0));
+        vm.mockCall(address(gameProxy), abi.encodeWithSelector(gameProxy.l2BlockNumber.selector), abi.encode(0));
         vm.warp(block.timestamp + 3 days + 12 hours);
         gameProxy.resolveClaim(0, 0);
         assertEq(uint8(gameProxy.resolve()), uint8(GameStatus.DEFENDER_WINS));
@@ -1954,7 +1839,7 @@ contract FaultDisputeGame_Test is FaultDisputeGame_Init {
     function test_addLocalData_l2BlockNumberExtension_succeeds() public {
         // Deploy a new dispute game with a L2 block number claim of 8. This is directly in the middle of
         // the leaves in our output bisection test tree, at SPLIT_DEPTH = 2 ** 2
-        IFaultDisputeGame game = IFaultDisputeGame(
+        FaultDisputeGame game = FaultDisputeGame(
             address(disputeGameFactory.create(GAME_TYPE, Claim.wrap(bytes32(uint256(0xFF))), abi.encode(uint256(8))))
         );
 
@@ -2011,18 +1896,6 @@ contract FaultDisputeGame_Test is FaultDisputeGame_Init {
         (dat, datLen) = oracle.readPreimage(key, 8);
         assertEq(dat, expectedNumber);
         assertEq(datLen, expectedLen);
-    }
-
-    /// @dev Tests that if the game is not in progress, querying of `getChallengerDuration` reverts
-    function test_getChallengerDuration_gameNotInProgress_reverts() public {
-        // resolve the game
-        vm.warp(block.timestamp + gameProxy.maxClockDuration().raw());
-
-        gameProxy.resolveClaim(0, 0);
-        gameProxy.resolve();
-
-        vm.expectRevert(GameNotInProgress.selector);
-        gameProxy.getChallengerDuration(1);
     }
 
     /// @dev Static unit test asserting that resolveClaim isn't possible if there's time
@@ -2679,7 +2552,7 @@ contract FaultDispute_1v1_Actors_Test is FaultDisputeGame_Init {
             (uint256 numMovesA,) = dishonest.move();
             (uint256 numMovesB, bool success) = honest.move();
 
-            require(success, "FaultDispute_1v1_Actors_Test: Honest actor's moves should always be successful");
+            require(success, "Honest actor's moves should always be successful");
 
             // If both actors have run out of moves, we're done.
             if (numMovesA == 0 && numMovesB == 0) break;

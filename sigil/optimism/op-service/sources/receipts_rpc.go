@@ -329,7 +329,8 @@ func AvailableReceiptsFetchingMethods(kind RPCProviderKind) ReceiptsFetchingMeth
 	case RPCKindQuickNode:
 		return DebugGetRawReceipts | EthGetBlockReceipts | EthGetTransactionReceiptBatch
 	case RPCKindInfura:
-		return EthGetBlockReceipts | EthGetTransactionReceiptBatch
+		// Infura is big, but sadly does not support more optimized receipts fetching methods (yet?)
+		return EthGetTransactionReceiptBatch
 	case RPCKindParity:
 		return ParityGetBlockReceipts | EthGetTransactionReceiptBatch
 	case RPCKindNethermind:

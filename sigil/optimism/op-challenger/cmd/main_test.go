@@ -90,9 +90,9 @@ func TestL1Beacon(t *testing.T) {
 
 func TestTraceType(t *testing.T) {
 	t.Run("Default", func(t *testing.T) {
-		expectedDefault := []types.TraceType{types.TraceTypeCannon, types.TraceTypeAsteriscKona}
-		cfg := configForArgs(t, addRequiredArgsForMultipleTracesExcept(expectedDefault, "--trace-type"))
-		require.Equal(t, expectedDefault, cfg.TraceTypes)
+		expectedDefault := types.TraceTypeCannon
+		cfg := configForArgs(t, addRequiredArgsExcept(expectedDefault, "--trace-type"))
+		require.Equal(t, []types.TraceType{expectedDefault}, cfg.TraceTypes)
 	})
 
 	for _, traceType := range types.TraceTypes {
@@ -176,13 +176,6 @@ func TestNetwork(t *testing.T) {
 
 	t.Run("UnknownNetwork", func(t *testing.T) {
 		verifyArgsInvalid(t, "unknown chain: not-a-network", addRequiredArgsExcept(types.TraceTypeAlphabet, "--game-factory-address", "--network=not-a-network"))
-	})
-
-	t.Run("ChainIDAllowedWhenGameFactoryAddressSupplied", func(t *testing.T) {
-		addr := common.Address{0xbb, 0xcc, 0xdd}
-		cfg := configForArgs(t, addRequiredArgsExcept(types.TraceTypeAlphabet, "--game-factory-address", "--network=1234", "--game-factory-address="+addr.Hex()))
-		require.Equal(t, addr, cfg.GameFactoryAddress)
-		require.Equal(t, "1234", cfg.Cannon.Network)
 	})
 }
 
@@ -294,41 +287,12 @@ func TestAsteriscOpProgramRequiredArgs(t *testing.T) {
 		})
 
 		t.Run("Required", func(t *testing.T) {
-			verifyArgsInvalid(t, "flag prestates-url or asterisc-prestate is required", addRequiredArgsExcept(traceType, "--asterisc-prestate"))
+			verifyArgsInvalid(t, "flag asterisc-prestates-url or asterisc-prestate is required", addRequiredArgsExcept(traceType, "--asterisc-prestate"))
 		})
 
 		t.Run("Valid", func(t *testing.T) {
 			cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--asterisc-prestate", "--asterisc-prestate=./pre.json"))
 			require.Equal(t, "./pre.json", cfg.AsteriscAbsolutePreState)
-		})
-	})
-
-	t.Run(fmt.Sprintf("TestPrestateBaseURL-%v", traceType), func(t *testing.T) {
-		allPrestateOptions := []string{"--prestates-url", "--asterisc-prestates-url", "--asterisc-prestate"}
-		t.Run("NotRequiredForAlphabetTrace", func(t *testing.T) {
-			configForArgs(t, addRequiredArgsExceptArr(types.TraceTypeAlphabet, allPrestateOptions))
-		})
-
-		t.Run("NotRequiredIfAsteriscPrestatesBaseURLSet", func(t *testing.T) {
-			configForArgs(t, addRequiredArgsExceptArr(traceType, allPrestateOptions, "--asterisc-prestates-url=http://localhost/foo"))
-		})
-
-		t.Run("AsteriscPrestatesBaseURLTakesPrecedence", func(t *testing.T) {
-			cfg := configForArgs(t, addRequiredArgsExceptArr(traceType, allPrestateOptions, "--asterisc-prestates-url=http://localhost/foo", "--prestates-url=http://localhost/bar"))
-			require.Equal(t, "http://localhost/foo", cfg.AsteriscAbsolutePreStateBaseURL.String())
-		})
-
-		t.Run("RequiredIfAsteriscPrestatesBaseURLNotSet", func(t *testing.T) {
-			verifyArgsInvalid(t, "flag prestates-url or asterisc-prestate is required", addRequiredArgsExceptArr(traceType, allPrestateOptions))
-		})
-
-		t.Run("Invalid", func(t *testing.T) {
-			verifyArgsInvalid(t, "invalid prestates-url (:foo/bar)", addRequiredArgsExceptArr(traceType, allPrestateOptions, "--prestates-url=:foo/bar"))
-		})
-
-		t.Run("Valid", func(t *testing.T) {
-			cfg := configForArgs(t, addRequiredArgsExceptArr(traceType, allPrestateOptions, "--prestates-url=http://localhost/foo"))
-			require.Equal(t, "http://localhost/foo", cfg.AsteriscAbsolutePreStateBaseURL.String())
 		})
 	})
 
@@ -338,7 +302,7 @@ func TestAsteriscOpProgramRequiredArgs(t *testing.T) {
 		})
 
 		t.Run("Required", func(t *testing.T) {
-			verifyArgsInvalid(t, "flag prestates-url or asterisc-prestate is required", addRequiredArgsExcept(traceType, "--asterisc-prestate"))
+			verifyArgsInvalid(t, "flag asterisc-prestates-url or asterisc-prestate is required", addRequiredArgsExcept(traceType, "--asterisc-prestate"))
 		})
 
 		t.Run("Valid", func(t *testing.T) {
@@ -371,7 +335,7 @@ func TestAsteriscKonaRequiredArgs(t *testing.T) {
 		})
 
 		t.Run("Required", func(t *testing.T) {
-			verifyArgsInvalid(t, "flag prestates-url or asterisc-kona-prestate is required", addRequiredArgsExcept(traceType, "--asterisc-kona-prestate"))
+			verifyArgsInvalid(t, "flag asterisc-kona-prestates-url or asterisc-kona-prestate is required", addRequiredArgsExcept(traceType, "--asterisc-kona-prestate"))
 		})
 
 		t.Run("Valid", func(t *testing.T) {
@@ -386,41 +350,12 @@ func TestAsteriscKonaRequiredArgs(t *testing.T) {
 		})
 
 		t.Run("Required", func(t *testing.T) {
-			verifyArgsInvalid(t, "flag prestates-url or asterisc-kona-prestate is required", addRequiredArgsExcept(traceType, "--asterisc-kona-prestate"))
+			verifyArgsInvalid(t, "flag asterisc-kona-prestates-url or asterisc-kona-prestate is required", addRequiredArgsExcept(traceType, "--asterisc-kona-prestate"))
 		})
 
 		t.Run("Valid", func(t *testing.T) {
 			cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--asterisc-kona-prestates-url", "--asterisc-kona-prestates-url=http://localhost/bar"))
 			require.Equal(t, "http://localhost/bar", cfg.AsteriscKonaAbsolutePreStateBaseURL.String())
-		})
-	})
-
-	t.Run(fmt.Sprintf("TestPrestateBaseURL-%v", traceType), func(t *testing.T) {
-		allPrestateOptions := []string{"--prestates-url", "--asterisc-kona-prestates-url", "--asterisc-kona-prestate"}
-		t.Run("NotRequiredForAlphabetTrace", func(t *testing.T) {
-			configForArgs(t, addRequiredArgsExceptArr(types.TraceTypeAlphabet, allPrestateOptions))
-		})
-
-		t.Run("NotRequiredIfAsteriscKonaPrestatesBaseURLSet", func(t *testing.T) {
-			configForArgs(t, addRequiredArgsExceptArr(traceType, allPrestateOptions, "--asterisc-kona-prestates-url=http://localhost/foo"))
-		})
-
-		t.Run("AsteriscKonaPrestatesBaseURLTakesPrecedence", func(t *testing.T) {
-			cfg := configForArgs(t, addRequiredArgsExceptArr(traceType, allPrestateOptions, "--asterisc-kona-prestates-url=http://localhost/foo", "--prestates-url=http://localhost/bar"))
-			require.Equal(t, "http://localhost/foo", cfg.AsteriscKonaAbsolutePreStateBaseURL.String())
-		})
-
-		t.Run("RequiredIfAsteriscKonaPrestatesBaseURLNotSet", func(t *testing.T) {
-			verifyArgsInvalid(t, "flag prestates-url or asterisc-kona-prestate is required", addRequiredArgsExceptArr(traceType, allPrestateOptions))
-		})
-
-		t.Run("Invalid", func(t *testing.T) {
-			verifyArgsInvalid(t, "invalid prestates-url (:foo/bar)", addRequiredArgsExceptArr(traceType, allPrestateOptions, "--prestates-url=:foo/bar"))
-		})
-
-		t.Run("Valid", func(t *testing.T) {
-			cfg := configForArgs(t, addRequiredArgsExceptArr(traceType, allPrestateOptions, "--prestates-url=http://localhost/foo"))
-			require.Equal(t, "http://localhost/foo", cfg.AsteriscKonaAbsolutePreStateBaseURL.String())
 		})
 	})
 }
@@ -644,7 +579,7 @@ func TestCannonRequiredArgs(t *testing.T) {
 			})
 
 			t.Run("Required", func(t *testing.T) {
-				verifyArgsInvalid(t, "flag prestates-url or cannon-prestate is required", addRequiredArgsExcept(traceType, "--cannon-prestate"))
+				verifyArgsInvalid(t, "flag cannon-prestates-url or cannon-prestate is required", addRequiredArgsExcept(traceType, "--cannon-prestate"))
 			})
 
 			t.Run("Valid", func(t *testing.T) {
@@ -653,46 +588,17 @@ func TestCannonRequiredArgs(t *testing.T) {
 			})
 		})
 
-		t.Run(fmt.Sprintf("TestCannonPrestatesBaseURL-%v", traceType), func(t *testing.T) {
+		t.Run(fmt.Sprintf("TestCannonAbsolutePrestateBaseURL-%v", traceType), func(t *testing.T) {
 			t.Run("NotRequiredForAlphabetTrace", func(t *testing.T) {
 				configForArgs(t, addRequiredArgsExcept(types.TraceTypeAlphabet, "--cannon-prestates-url"))
 			})
 
 			t.Run("Required", func(t *testing.T) {
-				verifyArgsInvalid(t, "flag prestates-url or cannon-prestate is required", addRequiredArgsExcept(traceType, "--cannon-prestate"))
+				verifyArgsInvalid(t, "flag cannon-prestates-url or cannon-prestate is required", addRequiredArgsExcept(traceType, "--cannon-prestate"))
 			})
 
 			t.Run("Valid", func(t *testing.T) {
 				cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--cannon-prestates-url", "--cannon-prestates-url=http://localhost/foo"))
-				require.Equal(t, "http://localhost/foo", cfg.CannonAbsolutePreStateBaseURL.String())
-			})
-		})
-
-		t.Run(fmt.Sprintf("TestPrestateBaseURL-%v", traceType), func(t *testing.T) {
-			allPrestateOptions := []string{"--prestates-url", "--cannon-prestates-url", "--cannon-prestate"}
-			t.Run("NotRequiredForAlphabetTrace", func(t *testing.T) {
-				configForArgs(t, addRequiredArgsExceptArr(types.TraceTypeAlphabet, allPrestateOptions))
-			})
-
-			t.Run("NotRequiredIfCannonPrestatesBaseURLSet", func(t *testing.T) {
-				configForArgs(t, addRequiredArgsExceptArr(traceType, allPrestateOptions, "--cannon-prestates-url=http://localhost/foo"))
-			})
-
-			t.Run("CannonPrestatesBaseURLTakesPrecedence", func(t *testing.T) {
-				cfg := configForArgs(t, addRequiredArgsExceptArr(traceType, allPrestateOptions, "--cannon-prestates-url=http://localhost/foo", "--prestates-url=http://localhost/bar"))
-				require.Equal(t, "http://localhost/foo", cfg.CannonAbsolutePreStateBaseURL.String())
-			})
-
-			t.Run("RequiredIfCannonPrestatesBaseURLNotSet", func(t *testing.T) {
-				verifyArgsInvalid(t, "flag prestates-url or cannon-prestate is required", addRequiredArgsExceptArr(traceType, allPrestateOptions))
-			})
-
-			t.Run("Invalid", func(t *testing.T) {
-				verifyArgsInvalid(t, "invalid prestates-url (:foo/bar)", addRequiredArgsExceptArr(traceType, allPrestateOptions, "--prestates-url=:foo/bar"))
-			})
-
-			t.Run("Valid", func(t *testing.T) {
-				cfg := configForArgs(t, addRequiredArgsExceptArr(traceType, allPrestateOptions, "--prestates-url=http://localhost/foo"))
 				require.Equal(t, "http://localhost/foo", cfg.CannonAbsolutePreStateBaseURL.String())
 			})
 		})
@@ -765,7 +671,7 @@ func TestCannonRequiredArgs(t *testing.T) {
 		t.Run(fmt.Sprintf("TestMustNotSpecifyCannonNetworkAndRollup-%v", traceType), func(t *testing.T) {
 			verifyArgsInvalid(
 				t,
-				"flag cannon-network can not be used with cannon-rollup-config, cannon-l2-genesis or cannon-l2-custom",
+				"flag cannon-network can not be used with cannon-rollup-config and cannon-l2-genesis",
 				addRequiredArgsExcept(traceType, "--cannon-network",
 					"--cannon-network", cannonNetwork, "--cannon-rollup-config=rollup.json"))
 		})
@@ -777,10 +683,9 @@ func TestCannonRequiredArgs(t *testing.T) {
 			args["--network"] = cannonNetwork
 			args["--cannon-rollup-config"] = "rollup.json"
 			args["--cannon-l2-genesis"] = "gensis.json"
-			args["--cannon-l2-custom"] = "true"
 			verifyArgsInvalid(
 				t,
-				"flag network can not be used with cannon-rollup-config, cannon-l2-genesis or cannon-l2-custom",
+				"flag network can not be used with cannon-rollup-config and cannon-l2-genesis",
 				toArgList(args))
 		})
 
@@ -812,14 +717,6 @@ func TestCannonRequiredArgs(t *testing.T) {
 				cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--cannon-network", "--cannon-network", testNetwork))
 				require.Equal(t, testNetwork, cfg.Cannon.Network)
 			})
-		})
-
-		t.Run(fmt.Sprintf("TestSetCannonL2ChainId-%v", traceType), func(t *testing.T) {
-			cfg := configForArgs(t, addRequiredArgsExcept(traceType, "--cannon-network",
-				"--cannon-rollup-config=rollup.json",
-				"--cannon-l2-genesis=genesis.json",
-				"--cannon-l2-custom"))
-			require.True(t, cfg.Cannon.L2Custom)
 		})
 
 		t.Run(fmt.Sprintf("TestCannonRollupConfig-%v", traceType), func(t *testing.T) {
@@ -953,18 +850,6 @@ func TestAdditionalBondClaimants(t *testing.T) {
 	})
 }
 
-func TestSignerTLS(t *testing.T) {
-	t.Run("EnabledByDefault", func(t *testing.T) {
-		cfg := configForArgs(t, addRequiredArgs(types.TraceTypeAlphabet))
-		require.True(t, cfg.TxMgrConfig.SignerCLIConfig.TLSConfig.Enabled)
-	})
-
-	t.Run("Disabled", func(t *testing.T) {
-		cfg := configForArgs(t, addRequiredArgs(types.TraceTypeAlphabet, "--signer.tls.enabled=false"))
-		require.False(t, cfg.TxMgrConfig.SignerCLIConfig.TLSConfig.Enabled)
-	})
-}
-
 func verifyArgsInvalid(t *testing.T, messageContains string, cliArgs []string) {
 	_, _, err := dryRunWithArgs(cliArgs)
 	require.ErrorContains(t, err, messageContains)
@@ -1004,30 +889,6 @@ func addRequiredArgsExcept(traceType types.TraceType, name string, optionalArgs 
 	return append(toArgList(req), optionalArgs...)
 }
 
-func addRequiredArgsForMultipleTracesExcept(traceType []types.TraceType, name string, optionalArgs ...string) []string {
-	req := requiredArgsMultiple(traceType)
-	delete(req, name)
-	return append(toArgList(req), optionalArgs...)
-}
-
-func addRequiredArgsExceptArr(traceType types.TraceType, names []string, optionalArgs ...string) []string {
-	req := requiredArgs(traceType)
-	for _, name := range names {
-		delete(req, name)
-	}
-	return append(toArgList(req), optionalArgs...)
-}
-
-func requiredArgsMultiple(traceType []types.TraceType) map[string]string {
-	args := make(map[string]string)
-	for _, t := range traceType {
-		for name, value := range requiredArgs(t) {
-			args[name] = value
-		}
-	}
-	return args
-}
-
 func requiredArgs(traceType types.TraceType) map[string]string {
 	args := map[string]string{
 		"--l1-eth-rpc":           l1EthRpc,
@@ -1054,6 +915,7 @@ func addRequiredCannonArgs(args map[string]string) {
 	args["--cannon-bin"] = cannonBin
 	args["--cannon-server"] = cannonServer
 	args["--cannon-prestate"] = cannonPreState
+	args["--l2-eth-rpc"] = l2EthRpc
 }
 
 func addRequiredAsteriscArgs(args map[string]string) {
@@ -1061,6 +923,7 @@ func addRequiredAsteriscArgs(args map[string]string) {
 	args["--asterisc-bin"] = asteriscBin
 	args["--asterisc-server"] = asteriscServer
 	args["--asterisc-prestate"] = asteriscPreState
+	args["--l2-eth-rpc"] = l2EthRpc
 }
 
 func addRequiredAsteriscKonaArgs(args map[string]string) {
@@ -1068,6 +931,7 @@ func addRequiredAsteriscKonaArgs(args map[string]string) {
 	args["--asterisc-bin"] = asteriscBin
 	args["--asterisc-kona-server"] = asteriscServer
 	args["--asterisc-kona-prestate"] = asteriscPreState
+	args["--l2-eth-rpc"] = l2EthRpc
 }
 
 func toArgList(req map[string]string) []string {

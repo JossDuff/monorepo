@@ -6,8 +6,6 @@ import (
 	crand "crypto/rand"
 	"fmt"
 
-	"github.com/ethereum-optimism/optimism/op-e2e/config"
-
 	"math/big"
 	"math/rand"
 	"testing"
@@ -41,7 +39,6 @@ func TestDropSpanBatchBeforeHardfork(gt *testing.T) {
 		SequencerWindowSize: 24,
 		ChannelTimeout:      20,
 		L1BlockTime:         12,
-		AllocType:           config.AllocTypeStandard,
 	}
 	dp := e2eutils.MakeDeployParams(t, p)
 	// do not activate Delta hardfork for verifier
@@ -131,7 +128,6 @@ func TestHardforkMiddleOfSpanBatch(gt *testing.T) {
 		SequencerWindowSize: 24,
 		ChannelTimeout:      20,
 		L1BlockTime:         12,
-		AllocType:           config.AllocTypeStandard,
 	}
 	dp := e2eutils.MakeDeployParams(t, p)
 
@@ -142,7 +138,6 @@ func TestHardforkMiddleOfSpanBatch(gt *testing.T) {
 	dp.DeployConfig.L2GenesisEcotoneTimeOffset = nil
 	dp.DeployConfig.L2GenesisFjordTimeOffset = nil
 	dp.DeployConfig.L2GenesisGraniteTimeOffset = nil
-	dp.DeployConfig.L2GenesisHoloceneTimeOffset = nil
 
 	sd := e2eutils.Setup(t, dp, actionsHelpers.DefaultAlloc)
 	log := testlog.Logger(t, log.LevelError)
@@ -246,7 +241,6 @@ func TestAcceptSingularBatchAfterHardfork(gt *testing.T) {
 		SequencerWindowSize: 24,
 		ChannelTimeout:      20,
 		L1BlockTime:         12,
-		AllocType:           config.AllocTypeStandard,
 	}
 	minTs := hexutil.Uint64(0)
 	dp := e2eutils.MakeDeployParams(t, p)
@@ -333,7 +327,6 @@ func TestMixOfBatchesAfterHardfork(gt *testing.T) {
 		SequencerWindowSize: 24,
 		ChannelTimeout:      20,
 		L1BlockTime:         12,
-		AllocType:           config.AllocTypeStandard,
 	}
 	minTs := hexutil.Uint64(0)
 	dp := e2eutils.MakeDeployParams(t, p)
@@ -425,7 +418,6 @@ func TestSpanBatchEmptyChain(gt *testing.T) {
 		SequencerWindowSize: 24,
 		ChannelTimeout:      20,
 		L1BlockTime:         12,
-		AllocType:           config.AllocTypeStandard,
 	}
 	dp := e2eutils.MakeDeployParams(t, p)
 	minTs := hexutil.Uint64(0)
@@ -489,7 +481,6 @@ func TestSpanBatchLowThroughputChain(gt *testing.T) {
 		SequencerWindowSize: 24,
 		ChannelTimeout:      20,
 		L1BlockTime:         12,
-		AllocType:           config.AllocTypeStandard,
 	}
 	dp := e2eutils.MakeDeployParams(t, p)
 	minTs := hexutil.Uint64(0)
@@ -604,7 +595,6 @@ func TestBatchEquivalence(gt *testing.T) {
 		SequencerWindowSize: 24,
 		ChannelTimeout:      20,
 		L1BlockTime:         12,
-		AllocType:           config.AllocTypeStandard,
 	}
 	// Delta activated deploy config
 	dp := e2eutils.MakeDeployParams(t, p)

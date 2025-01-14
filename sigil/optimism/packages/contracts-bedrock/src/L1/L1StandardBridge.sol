@@ -6,13 +6,12 @@ import { StandardBridge } from "src/universal/StandardBridge.sol";
 
 // Libraries
 import { Predeploys } from "src/libraries/Predeploys.sol";
-import { Constants } from "src/libraries/Constants.sol";
 
 // Interfaces
-import { ISemver } from "interfaces/universal/ISemver.sol";
-import { ICrossDomainMessenger } from "interfaces/universal/ICrossDomainMessenger.sol";
-import { ISuperchainConfig } from "interfaces/L1/ISuperchainConfig.sol";
-import { ISystemConfig } from "interfaces/L1/ISystemConfig.sol";
+import { ISemver } from "src/universal/interfaces/ISemver.sol";
+import { ICrossDomainMessenger } from "src/universal/interfaces/ICrossDomainMessenger.sol";
+import { ISuperchainConfig } from "src/L1/interfaces/ISuperchainConfig.sol";
+import { ISystemConfig } from "src/L1/interfaces/ISystemConfig.sol";
 
 /// @custom:proxied true
 /// @title L1StandardBridge
@@ -76,8 +75,8 @@ contract L1StandardBridge is StandardBridge, ISemver {
     );
 
     /// @notice Semantic version.
-    /// @custom:semver 2.2.1-beta.6
-    string public constant version = "2.2.1-beta.6";
+    /// @custom:semver 2.2.1-beta.1
+    string public constant version = "2.2.1-beta.1";
 
     /// @notice Address of the SuperchainConfig contract.
     ISuperchainConfig public superchainConfig;
@@ -87,7 +86,11 @@ contract L1StandardBridge is StandardBridge, ISemver {
 
     /// @notice Constructs the L1StandardBridge contract.
     constructor() StandardBridge() {
-        _disableInitializers();
+        initialize({
+            _messenger: ICrossDomainMessenger(address(0)),
+            _superchainConfig: ISuperchainConfig(address(0)),
+            _systemConfig: ISystemConfig(address(0))
+        });
     }
 
     /// @notice Initializer.
@@ -98,7 +101,7 @@ contract L1StandardBridge is StandardBridge, ISemver {
         ISuperchainConfig _superchainConfig,
         ISystemConfig _systemConfig
     )
-        external
+        public
         initializer
     {
         superchainConfig = _superchainConfig;
@@ -120,10 +123,8 @@ contract L1StandardBridge is StandardBridge, ISemver {
     }
 
     /// @inheritdoc StandardBridge
-    /// @dev This is added to maintain compatibility with the CrossDomainMessenger abstract contract and should always
-    /// return the ether address and 18 decimals.
-    function gasPayingToken() internal pure override returns (address addr_, uint8 decimals_) {
-        return (Constants.ETHER, 18);
+    function gasPayingToken() internal view override returns (address addr_, uint8 decimals_) {
+        (addr_, decimals_) = systemConfig.gasPayingToken();
     }
 
     /// @custom:legacy

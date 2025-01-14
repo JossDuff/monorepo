@@ -7,11 +7,9 @@ import (
 	"math/big"
 	"os"
 
-	"github.com/ethereum-optimism/optimism/cannon/mipsevm/arch"
 	"github.com/ethereum-optimism/optimism/op-chain-ops/srcmap"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/eth/tracers/logger"
-	"github.com/ethereum/go-ethereum/triedb"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ethereum-optimism/optimism/op-chain-ops/foundry"
@@ -67,11 +65,7 @@ func loadArtifacts(version MipsVersion) (*Artifacts, error) {
 	case MipsSingleThreaded:
 		mips, err = artifactFS.ReadArtifact("MIPS.sol", "MIPS")
 	case MipsMultithreaded:
-		if arch.IsMips32 {
-			mips, err = artifactFS.ReadArtifact("MIPS2.sol", "MIPS2")
-		} else {
-			mips, err = artifactFS.ReadArtifact("MIPS64.sol", "MIPS64")
-		}
+		mips, err = artifactFS.ReadArtifact("MIPS2.sol", "MIPS2")
 	default:
 		return nil, fmt.Errorf("Unknown MipsVersion supplied: %v", version)
 	}
@@ -101,8 +95,8 @@ func NewEVMEnv(contracts *ContractMetadata) (*vm.EVM, *state.StateDB) {
 	bc := &testChain{startTime: *chainCfg.CancunTime + offsetBlocks*12}
 	header := bc.GetHeader(common.Hash{}, 17034870+offsetBlocks)
 	db := rawdb.NewMemoryDatabase()
-	statedb := state.NewDatabase(triedb.NewDatabase(db, nil), nil)
-	state, err := state.New(types.EmptyRootHash, statedb)
+	statedb := state.NewDatabase(db)
+	state, err := state.New(types.EmptyRootHash, statedb, nil)
 	if err != nil {
 		panic(fmt.Errorf("failed to create memory state db: %w", err))
 	}
@@ -172,11 +166,7 @@ func SourceMapTracer(t require.TestingT, version MipsVersion, mips *foundry.Arti
 	case MipsSingleThreaded:
 		mipsSrcMap, err = srcFS.SourceMap(mips, "MIPS")
 	case MipsMultithreaded:
-		if arch.IsMips32 {
-			mipsSrcMap, err = srcFS.SourceMap(mips, "MIPS2")
-		} else {
-			mipsSrcMap, err = srcFS.SourceMap(mips, "MIPS64")
-		}
+		mipsSrcMap, err = srcFS.SourceMap(mips, "MIPS2")
 	default:
 		require.Fail(t, "invalid mips version")
 	}

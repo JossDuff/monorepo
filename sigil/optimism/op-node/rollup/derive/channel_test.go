@@ -18,13 +18,12 @@ type frameValidityTC struct {
 	frames    []Frame
 	shouldErr []bool
 	sizes     []uint64
-	holocene  bool
 }
 
 func (tc *frameValidityTC) Run(t *testing.T) {
 	id := [16]byte{0xff}
 	block := eth.L1BlockRef{}
-	ch := NewChannel(id, block, tc.holocene)
+	ch := NewChannel(id, block)
 
 	if len(tc.frames) != len(tc.shouldErr) || len(tc.frames) != len(tc.sizes) {
 		t.Errorf("lengths should be the same. frames: %d, shouldErr: %d, sizes: %d", len(tc.frames), len(tc.shouldErr), len(tc.sizes))
@@ -33,9 +32,9 @@ func (tc *frameValidityTC) Run(t *testing.T) {
 	for i, frame := range tc.frames {
 		err := ch.AddFrame(frame, block)
 		if tc.shouldErr[i] {
-			require.Error(t, err)
+			require.NotNil(t, err)
 		} else {
-			require.NoError(t, err)
+			require.Nil(t, err)
 		}
 		require.Equal(t, tc.sizes[i], ch.Size())
 	}
@@ -106,36 +105,6 @@ func TestFrameValidity(t *testing.T) {
 			shouldErr: []bool{false, false},
 			sizes:     []uint64{207, 411},
 		},
-		{
-			name:     "holocene non first",
-			holocene: true,
-			frames: []Frame{
-				{ID: id, FrameNumber: 2, Data: []byte("four")},
-			},
-			shouldErr: []bool{true},
-			sizes:     []uint64{0},
-		},
-		{
-			name:     "holocene out of order",
-			holocene: true,
-			frames: []Frame{
-				{ID: id, FrameNumber: 0, Data: []byte("four")},
-				{ID: id, FrameNumber: 2, Data: []byte("seven__")},
-			},
-			shouldErr: []bool{false, true},
-			sizes:     []uint64{204, 204},
-		},
-		{
-			name:     "holocene in order",
-			holocene: true,
-			frames: []Frame{
-				{ID: id, FrameNumber: 0, Data: []byte("four")},
-				{ID: id, FrameNumber: 1, Data: []byte("seven__")},
-				{ID: id, FrameNumber: 2, IsLast: true, Data: []byte("2_")},
-			},
-			shouldErr: []bool{false, false, false},
-			sizes:     []uint64{204, 411, 613},
-		},
 	}
 
 	for _, tc := range testCases {
@@ -145,20 +114,12 @@ func TestFrameValidity(t *testing.T) {
 
 func TestBatchReader(t *testing.T) {
 	rng := rand.New(rand.NewSource(0x543331))
-
-	batchCount := 3
-	batches := make([]*BatchData, batchCount)
-	for i := 0; i < batchCount; i++ {
-		singularBatch := RandomSingularBatch(rng, 20, big.NewInt(333))
-		batchDataInput := NewBatchData(singularBatch)
-		batches[i] = batchDataInput
-	}
+	singularBatch := RandomSingularBatch(rng, 20, big.NewInt(333))
+	batchDataInput := NewBatchData(singularBatch)
 
 	encodedBatch := new(bytes.Buffer)
-	for _, batchData := range batches {
-		err := batchData.EncodeRLP(encodedBatch)
-		require.NoError(t, err)
-	}
+	err := batchDataInput.EncodeRLP(encodedBatch)
+	require.NoError(t, err)
 
 	const Zstd CompressionAlgo = "zstd" // invalid algo
 	compressor := func(ca CompressionAlgo) func(buf *bytes.Buffer, t *testing.T) {
@@ -261,22 +222,17 @@ func TestBatchReader(t *testing.T) {
 			}
 			require.NoError(t, err)
 
-			for i := 0; i < batchCount; i++ {
-				batchData, err := reader()
-				require.NoError(t, err)
-				require.NotNil(t, batchData)
-				if tc.algo.IsBrotli() {
-					// special case because reader doesn't decode level
-					batches[i].ComprAlgo = Brotli
-				} else {
-					batches[i].ComprAlgo = tc.algo
-				}
-				require.Equal(t, batches[i], batchData)
+			// read the batch data
+			batchData, err := reader()
+			require.NoError(t, err)
+			require.NotNil(t, batchData)
+			if tc.algo.IsBrotli() {
+				// special case because reader doesn't decode level
+				batchDataInput.ComprAlgo = Brotli
+			} else {
+				batchDataInput.ComprAlgo = tc.algo
 			}
-
-			// further read should error out
-			_, err = reader()
-			require.Error(t, err)
+			require.Equal(t, batchDataInput, batchData)
 		})
 	}
 }

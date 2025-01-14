@@ -3,17 +3,12 @@ pragma solidity 0.8.15;
 
 // Contracts
 import { OptimismPortal2 } from "src/L1/OptimismPortal2.sol";
+import { L1BlockIsthmus, ConfigType } from "src/L2/L1BlockIsthmus.sol";
 
 // Libraries
 import { Predeploys } from "src/libraries/Predeploys.sol";
 import { Constants } from "src/libraries/Constants.sol";
-import { Unauthorized } from "src/libraries/PortalErrors.sol";
-
-// Interfaces
-import { IL1BlockInterop, ConfigType } from "interfaces/L2/IL1BlockInterop.sol";
-
-/// @notice Error thrown when attempting to use custom gas token specific actions.
-error CustomGasTokenNotSupported();
+import "src/libraries/PortalErrors.sol";
 
 /// @custom:proxied true
 /// @title OptimismPortalInterop
@@ -28,9 +23,9 @@ contract OptimismPortalInterop is OptimismPortal2 {
         OptimismPortal2(_proofMaturityDelaySeconds, _disputeGameFinalityDelaySeconds)
     { }
 
-    /// @custom:semver +interop-beta.8
+    /// @custom:semver +interop
     function version() public pure override returns (string memory) {
-        return string.concat(super.version(), "+interop-beta.8");
+        return string.concat(super.version(), "+interop");
     }
 
     /// @notice Sets static configuration options for the L2 system.
@@ -38,7 +33,6 @@ contract OptimismPortalInterop is OptimismPortal2 {
     /// @param _value Encoded value of the configuration.
     function setConfig(ConfigType _type, bytes memory _value) external {
         if (msg.sender != address(systemConfig)) revert Unauthorized();
-        if (_type == ConfigType.SET_GAS_PAYING_TOKEN) revert CustomGasTokenNotSupported();
 
         // Set L2 deposit gas as used without paying burning gas. Ensures that deposits cannot use too much L2 gas.
         // This value must be large enough to cover the cost of calling `L1Block.setConfig`.
@@ -54,7 +48,7 @@ contract OptimismPortalInterop is OptimismPortal2 {
                 uint256(0), // value
                 uint64(SYSTEM_DEPOSIT_GAS_LIMIT), // gasLimit
                 false, // isCreation,
-                abi.encodeCall(IL1BlockInterop.setConfig, (_type, _value))
+                abi.encodeCall(L1BlockIsthmus.setConfig, (_type, _value))
             )
         );
     }

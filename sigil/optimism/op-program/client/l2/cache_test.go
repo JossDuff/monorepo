@@ -15,7 +15,6 @@ import (
 var _ Oracle = (*CachingOracle)(nil)
 
 func TestBlockByHash(t *testing.T) {
-	chainID := uint64(48294)
 	stub, _ := test.NewStubOracle(t)
 	oracle := NewCachingOracle(stub)
 
@@ -24,12 +23,12 @@ func TestBlockByHash(t *testing.T) {
 
 	// Initial call retrieves from the stub
 	stub.Blocks[block.Hash()] = block
-	actual := oracle.BlockByHash(block.Hash(), chainID)
+	actual := oracle.BlockByHash(block.Hash())
 	require.Equal(t, block, actual)
 
-	// Later calls should retrieve from cache (even if chain ID is different)
+	// Later calls should retrieve from cache
 	delete(stub.Blocks, block.Hash())
-	actual = oracle.BlockByHash(block.Hash(), 9982)
+	actual = oracle.BlockByHash(block.Hash())
 	require.Equal(t, block, actual)
 }
 
@@ -42,12 +41,12 @@ func TestNodeByHash(t *testing.T) {
 
 	// Initial call retrieves from the stub
 	stateStub.Data[hash] = node
-	actual := oracle.NodeByHash(hash, 1234)
+	actual := oracle.NodeByHash(hash)
 	require.Equal(t, node, actual)
 
-	// Later calls should retrieve from cache (even if chain ID is different)
+	// Later calls should retrieve from cache
 	delete(stateStub.Data, hash)
-	actual = oracle.NodeByHash(hash, 997845)
+	actual = oracle.NodeByHash(hash)
 	require.Equal(t, node, actual)
 }
 
@@ -60,12 +59,12 @@ func TestCodeByHash(t *testing.T) {
 
 	// Initial call retrieves from the stub
 	stateStub.Code[hash] = node
-	actual := oracle.CodeByHash(hash, 342)
+	actual := oracle.CodeByHash(hash)
 	require.Equal(t, node, actual)
 
-	// Later calls should retrieve from cache (even if the chain ID is different)
+	// Later calls should retrieve from cache
 	delete(stateStub.Code, hash)
-	actual = oracle.CodeByHash(hash, 986776)
+	actual = oracle.CodeByHash(hash)
 	require.Equal(t, node, actual)
 }
 
@@ -79,11 +78,11 @@ func TestOutputByRoot(t *testing.T) {
 	// Initial call retrieves from the stub
 	root := common.Hash(eth.OutputRoot(output))
 	stub.Outputs[root] = output
-	actual := oracle.OutputByRoot(root, 59284)
+	actual := oracle.OutputByRoot(root)
 	require.Equal(t, output, actual)
 
-	// Later calls should retrieve from cache (even if the chain ID is different)
+	// Later calls should retrieve from cache
 	delete(stub.Outputs, root)
-	actual = oracle.OutputByRoot(root, 9193)
+	actual = oracle.OutputByRoot(root)
 	require.Equal(t, output, actual)
 }

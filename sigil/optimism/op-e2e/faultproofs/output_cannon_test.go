@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"testing"
 
+	op_e2e "github.com/ethereum-optimism/optimism/op-e2e"
+
 	"github.com/ethereum-optimism/optimism/op-challenger/game/fault/trace/utils"
 	"github.com/ethereum-optimism/optimism/op-challenger/game/fault/types"
 	gameTypes "github.com/ethereum-optimism/optimism/op-challenger/game/types"
-	op_e2e "github.com/ethereum-optimism/optimism/op-e2e"
-	"github.com/ethereum-optimism/optimism/op-e2e/config"
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/challenger"
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/disputegame"
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/disputegame/preimage"
@@ -18,18 +18,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestOutputCannonGame_Standard(t *testing.T) {
-	testOutputCannonGame(t, config.AllocTypeStandard)
-}
-
-func TestOutputCannonGame_Multithreaded(t *testing.T) {
-	testOutputCannonGame(t, config.AllocTypeMTCannon)
-}
-
-func testOutputCannonGame(t *testing.T, allocType config.AllocType) {
+func TestOutputCannonGame(t *testing.T) {
 	op_e2e.InitParallel(t, op_e2e.UsesCannon)
 	ctx := context.Background()
-	sys, l1Client := StartFaultDisputeSystem(t, WithAllocType(allocType))
+	sys, l1Client := StartFaultDisputeSystem(t)
 	t.Cleanup(sys.Close)
 
 	disputeGameFactory := disputegame.NewFactoryHelper(t, ctx, sys)
@@ -81,19 +73,11 @@ func testOutputCannonGame(t *testing.T, allocType config.AllocType) {
 	game.WaitForGameStatus(ctx, gameTypes.GameStatusChallengerWon)
 }
 
-func TestOutputCannon_ChallengeAllZeroClaim_Standard(t *testing.T) {
-	testOutputCannonChallengeAllZeroClaim(t, config.AllocTypeStandard)
-}
-
-func TestOutputCannon_ChallengeAllZeroClaim_Multithreaded(t *testing.T) {
-	testOutputCannonChallengeAllZeroClaim(t, config.AllocTypeMTCannon)
-}
-
-func testOutputCannonChallengeAllZeroClaim(t *testing.T, allocType config.AllocType) {
+func TestOutputCannon_ChallengeAllZeroClaim(t *testing.T) {
 	// The dishonest actor always posts claims with all zeros.
 	op_e2e.InitParallel(t, op_e2e.UsesCannon)
 	ctx := context.Background()
-	sys, l1Client := StartFaultDisputeSystem(t, WithAllocType(allocType))
+	sys, l1Client := StartFaultDisputeSystem(t)
 	t.Cleanup(sys.Close)
 
 	disputeGameFactory := disputegame.NewFactoryHelper(t, ctx, sys)
@@ -118,15 +102,7 @@ func testOutputCannonChallengeAllZeroClaim(t *testing.T, allocType config.AllocT
 	game.LogGameData(ctx)
 }
 
-func TestOutputCannon_PublishCannonRootClaim_Standard(t *testing.T) {
-	testOutputCannonPublishCannonRootClaim(t, config.AllocTypeStandard)
-}
-
-func TestOutputCannon_PublishCannonRootClaim_Multithreaded(t *testing.T) {
-	testOutputCannonPublishCannonRootClaim(t, config.AllocTypeMTCannon)
-}
-
-func testOutputCannonPublishCannonRootClaim(t *testing.T, allocType config.AllocType) {
+func TestOutputCannon_PublishCannonRootClaim(t *testing.T) {
 	op_e2e.InitParallel(t, op_e2e.UsesCannon)
 	tests := []struct {
 		disputeL2BlockNumber uint64
@@ -140,7 +116,7 @@ func testOutputCannonPublishCannonRootClaim(t *testing.T, allocType config.Alloc
 			op_e2e.InitParallel(t, op_e2e.UsesCannon)
 
 			ctx := context.Background()
-			sys, _ := StartFaultDisputeSystem(t, WithAllocType(allocType))
+			sys, _ := StartFaultDisputeSystem(t)
 
 			disputeGameFactory := disputegame.NewFactoryHelper(t, ctx, sys)
 			game := disputeGameFactory.StartOutputCannonGame(ctx, "sequencer", test.disputeL2BlockNumber, common.Hash{0x01})
@@ -155,16 +131,7 @@ func testOutputCannonPublishCannonRootClaim(t *testing.T, allocType config.Alloc
 	}
 }
 
-func TestOutputCannonDisputeGame_Standard(t *testing.T) {
-	testOutputCannonDisputeGame(t, config.AllocTypeStandard)
-}
-
-func TestOutputCannonDisputeGame_Multithreaded(t *testing.T) {
-	testOutputCannonDisputeGame(t, config.AllocTypeMTCannon)
-}
-
-func testOutputCannonDisputeGame(t *testing.T, allocType config.AllocType) {
-
+func TestOutputCannonDisputeGame(t *testing.T) {
 	op_e2e.InitParallel(t, op_e2e.UsesCannon)
 	tests := []struct {
 		name             string
@@ -180,7 +147,7 @@ func testOutputCannonDisputeGame(t *testing.T, allocType config.AllocType) {
 			op_e2e.InitParallel(t, op_e2e.UsesCannon)
 
 			ctx := context.Background()
-			sys, l1Client := StartFaultDisputeSystem(t, WithAllocType(allocType))
+			sys, l1Client := StartFaultDisputeSystem(t)
 			t.Cleanup(sys.Close)
 
 			disputeGameFactory := disputegame.NewFactoryHelper(t, ctx, sys)
@@ -213,19 +180,11 @@ func testOutputCannonDisputeGame(t *testing.T, allocType config.AllocType) {
 	}
 }
 
-func TestOutputCannonDefendStep_Standard(t *testing.T) {
-	testOutputCannonDefendStep(t, config.AllocTypeStandard)
-}
-
-func TestOutputCannonDefendStep_Multithreaded(t *testing.T) {
-	testOutputCannonDefendStep(t, config.AllocTypeMTCannon)
-}
-
-func testOutputCannonDefendStep(t *testing.T, allocType config.AllocType) {
+func TestOutputCannonDefendStep(t *testing.T) {
 	op_e2e.InitParallel(t, op_e2e.UsesCannon)
 
 	ctx := context.Background()
-	sys, l1Client := StartFaultDisputeSystem(t, WithAllocType(allocType))
+	sys, l1Client := StartFaultDisputeSystem(t)
 	t.Cleanup(sys.Close)
 
 	disputeGameFactory := disputegame.NewFactoryHelper(t, ctx, sys)
@@ -252,22 +211,16 @@ func testOutputCannonDefendStep(t *testing.T, allocType config.AllocType) {
 	sys.TimeTravelClock.AdvanceTime(game.MaxClockDuration(ctx))
 	require.NoError(t, wait.ForNextBlock(ctx, l1Client))
 
-	game.WaitForGameStatus(ctx, gameTypes.GameStatusChallengerWon)
+	game.WaitForInactivity(ctx, 10, true)
+	game.LogGameData(ctx)
+	require.EqualValues(t, gameTypes.GameStatusChallengerWon, game.Status(ctx))
 }
 
-func TestOutputCannonStepWithLargePreimage_Standard(t *testing.T) {
-	testOutputCannonStepWithLargePreimage(t, config.AllocTypeStandard)
-}
-
-func TestOutputCannonStepWithLargePreimage_Multithreaded(t *testing.T) {
-	testOutputCannonStepWithLargePreimage(t, config.AllocTypeMTCannon)
-}
-
-func testOutputCannonStepWithLargePreimage(t *testing.T, allocType config.AllocType) {
+func TestOutputCannonStepWithLargePreimage(t *testing.T) {
 	op_e2e.InitParallel(t, op_e2e.UsesCannon)
 
 	ctx := context.Background()
-	sys, _ := StartFaultDisputeSystem(t, WithBatcherStopped(), WithAllocType(allocType))
+	sys, _ := StartFaultDisputeSystem(t, WithBatcherStopped())
 	t.Cleanup(sys.Close)
 
 	// Manually send a tx from the correct batcher key to the batcher input with very large (invalid) data
@@ -304,21 +257,13 @@ func testOutputCannonStepWithLargePreimage(t *testing.T, allocType config.AllocT
 	// So we don't waste time resolving the game - that's tested elsewhere.
 }
 
-func TestOutputCannonStepWithPreimage_Standard(t *testing.T) {
-	testOutputCannonStepWithPreimage(t, config.AllocTypeStandard)
-}
-
-func TestOutputCannonStepWithPreimage_Multithreaded(t *testing.T) {
-	testOutputCannonStepWithPreimage(t, config.AllocTypeMTCannon)
-}
-
-func testOutputCannonStepWithPreimage(t *testing.T, allocType config.AllocType) {
+func TestOutputCannonStepWithPreimage(t *testing.T) {
 	op_e2e.InitParallel(t, op_e2e.UsesCannon)
 	testPreimageStep := func(t *testing.T, preimageType utils.PreimageOpt, preloadPreimage bool) {
 		op_e2e.InitParallel(t, op_e2e.UsesCannon)
 
 		ctx := context.Background()
-		sys, _ := StartFaultDisputeSystem(t, WithBlobBatches(), WithAllocType(allocType))
+		sys, _ := StartFaultDisputeSystem(t, WithBlobBatches())
 		t.Cleanup(sys.Close)
 
 		disputeGameFactory := disputegame.NewFactoryHelper(t, ctx, sys)
@@ -354,22 +299,14 @@ func testOutputCannonStepWithPreimage(t *testing.T, allocType config.AllocType) 
 	})
 }
 
-func TestOutputCannonStepWithKZGPointEvaluation_Standard(t *testing.T) {
-	testOutputCannonStepWithKzgPointEvaluation(t, config.AllocTypeStandard)
-}
-
-func TestOutputCannonStepWithKZGPointEvaluation_Multithreaded(t *testing.T) {
-	testOutputCannonStepWithKzgPointEvaluation(t, config.AllocTypeMTCannon)
-}
-
-func testOutputCannonStepWithKzgPointEvaluation(t *testing.T, allocType config.AllocType) {
+func TestOutputCannonStepWithKZGPointEvaluation(t *testing.T) {
 	op_e2e.InitParallel(t, op_e2e.UsesCannon)
 
 	testPreimageStep := func(t *testing.T, preloadPreimage bool) {
 		op_e2e.InitParallel(t, op_e2e.UsesCannon)
 
 		ctx := context.Background()
-		sys, _ := StartFaultDisputeSystem(t, WithEcotone(), WithAllocType(allocType))
+		sys, _ := StartFaultDisputeSystem(t, WithEcotone())
 		t.Cleanup(sys.Close)
 
 		// NOTE: Flake prevention
@@ -410,15 +347,7 @@ func testOutputCannonStepWithKzgPointEvaluation(t *testing.T, allocType config.A
 	})
 }
 
-func TestOutputCannonProposedOutputRootValid_Standard(t *testing.T) {
-	testOutputCannonProposedOutputRootValid(t, config.AllocTypeStandard)
-}
-
-func TestOutputCannonProposedOutputRootValid_Multithreaded(t *testing.T) {
-	testOutputCannonProposedOutputRootValid(t, config.AllocTypeMTCannon)
-}
-
-func testOutputCannonProposedOutputRootValid(t *testing.T, allocType config.AllocType) {
+func TestOutputCannonProposedOutputRootValid(t *testing.T) {
 	op_e2e.InitParallel(t, op_e2e.UsesCannon)
 	// honestStepsFail attempts to perform both an attack and defend step using the correct trace.
 	honestStepsFail := func(ctx context.Context, game *disputegame.OutputCannonGameHelper, correctTrace *disputegame.OutputHonestHelper, parentClaimIdx int64) {
@@ -477,7 +406,7 @@ func testOutputCannonProposedOutputRootValid(t *testing.T, allocType config.Allo
 			op_e2e.InitParallel(t, op_e2e.UsesCannon)
 
 			ctx := context.Background()
-			sys, l1Client := StartFaultDisputeSystem(t, WithAllocType(allocType))
+			sys, l1Client := StartFaultDisputeSystem(t)
 			t.Cleanup(sys.Close)
 
 			disputeGameFactory := disputegame.NewFactoryHelper(t, ctx, sys)
@@ -500,24 +429,18 @@ func testOutputCannonProposedOutputRootValid(t *testing.T, allocType config.Allo
 			sys.TimeTravelClock.AdvanceTime(game.MaxClockDuration(ctx))
 			require.NoError(t, wait.ForNextBlock(ctx, l1Client))
 
-			game.WaitForGameStatus(ctx, gameTypes.GameStatusDefenderWon)
+			game.WaitForInactivity(ctx, 10, true)
+			game.LogGameData(ctx)
+			require.EqualValues(t, gameTypes.GameStatusDefenderWon, game.Status(ctx))
 		})
 	}
 }
 
-func TestOutputCannonPoisonedPostState_Standard(t *testing.T) {
-	testOutputCannonPoisonedPostState(t, config.AllocTypeStandard)
-}
-
-func TestOutputCannonPoisonedPostState_Multithreaded(t *testing.T) {
-	testOutputCannonPoisonedPostState(t, config.AllocTypeMTCannon)
-}
-
-func testOutputCannonPoisonedPostState(t *testing.T, allocType config.AllocType) {
+func TestOutputCannonPoisonedPostState(t *testing.T) {
 	op_e2e.InitParallel(t, op_e2e.UsesCannon)
 
 	ctx := context.Background()
-	sys, l1Client := StartFaultDisputeSystem(t, WithAllocType(allocType))
+	sys, l1Client := StartFaultDisputeSystem(t)
 	t.Cleanup(sys.Close)
 
 	disputeGameFactory := disputegame.NewFactoryHelper(t, ctx, sys)
@@ -577,19 +500,11 @@ func testOutputCannonPoisonedPostState(t *testing.T, allocType config.AllocType)
 	game.WaitForGameStatus(ctx, gameTypes.GameStatusChallengerWon)
 }
 
-func TestDisputeOutputRootBeyondProposedBlock_ValidOutputRoot_Standard(t *testing.T) {
-	testDisputeOutputRootBeyondProposedBlockValidOutputRoot(t, config.AllocTypeStandard)
-}
-
-func TestDisputeOutputRootBeyondProposedBlock_ValidOutputRoot_Multithreaded(t *testing.T) {
-	testDisputeOutputRootBeyondProposedBlockValidOutputRoot(t, config.AllocTypeMTCannon)
-}
-
-func testDisputeOutputRootBeyondProposedBlockValidOutputRoot(t *testing.T, allocType config.AllocType) {
+func TestDisputeOutputRootBeyondProposedBlock_ValidOutputRoot(t *testing.T) {
 	op_e2e.InitParallel(t, op_e2e.UsesCannon)
 
 	ctx := context.Background()
-	sys, l1Client := StartFaultDisputeSystem(t, WithAllocType(allocType))
+	sys, l1Client := StartFaultDisputeSystem(t)
 	t.Cleanup(sys.Close)
 
 	disputeGameFactory := disputegame.NewFactoryHelper(t, ctx, sys)
@@ -635,19 +550,11 @@ func testDisputeOutputRootBeyondProposedBlockValidOutputRoot(t *testing.T, alloc
 	game.LogGameData(ctx)
 }
 
-func TestDisputeOutputRootBeyondProposedBlock_InvalidOutputRoot_Standard(t *testing.T) {
-	testDisputeOutputRootBeyondProposedBlockInvalidOutputRoot(t, config.AllocTypeStandard)
-}
-
-func TestDisputeOutputRootBeyondProposedBlock_InvalidOutputRoot_Multithreaded(t *testing.T) {
-	testDisputeOutputRootBeyondProposedBlockInvalidOutputRoot(t, config.AllocTypeMTCannon)
-}
-
-func testDisputeOutputRootBeyondProposedBlockInvalidOutputRoot(t *testing.T, allocType config.AllocType) {
+func TestDisputeOutputRootBeyondProposedBlock_InvalidOutputRoot(t *testing.T) {
 	op_e2e.InitParallel(t, op_e2e.UsesCannon)
 
 	ctx := context.Background()
-	sys, l1Client := StartFaultDisputeSystem(t, WithAllocType(allocType))
+	sys, l1Client := StartFaultDisputeSystem(t)
 	t.Cleanup(sys.Close)
 
 	disputeGameFactory := disputegame.NewFactoryHelper(t, ctx, sys)
@@ -694,19 +601,11 @@ func testDisputeOutputRootBeyondProposedBlockInvalidOutputRoot(t *testing.T, all
 	game.LogGameData(ctx)
 }
 
-func TestTestDisputeOutputRoot_ChangeClaimedOutputRoot_Standard(t *testing.T) {
-	testTestDisputeOutputRootChangeClaimedOutputRoot(t, config.AllocTypeStandard)
-}
-
-func TestTestDisputeOutputRoot_ChangeClaimedOutputRoot_Multithreaded(t *testing.T) {
-	testTestDisputeOutputRootChangeClaimedOutputRoot(t, config.AllocTypeMTCannon)
-}
-
-func testTestDisputeOutputRootChangeClaimedOutputRoot(t *testing.T, allocType config.AllocType) {
+func TestDisputeOutputRoot_ChangeClaimedOutputRoot(t *testing.T) {
 	op_e2e.InitParallel(t, op_e2e.UsesCannon)
 
 	ctx := context.Background()
-	sys, l1Client := StartFaultDisputeSystem(t, WithAllocType(allocType))
+	sys, l1Client := StartFaultDisputeSystem(t)
 	t.Cleanup(sys.Close)
 
 	disputeGameFactory := disputegame.NewFactoryHelper(t, ctx, sys)
@@ -762,15 +661,7 @@ func testTestDisputeOutputRootChangeClaimedOutputRoot(t *testing.T, allocType co
 	game.LogGameData(ctx)
 }
 
-func TestInvalidateUnsafeProposal_Standard(t *testing.T) {
-	testInvalidateUnsafeProposal(t, config.AllocTypeStandard)
-}
-
-func TestInvalidateUnsafeProposal_Multithreaded(t *testing.T) {
-	testInvalidateUnsafeProposal(t, config.AllocTypeMTCannon)
-}
-
-func testInvalidateUnsafeProposal(t *testing.T, allocType config.AllocType) {
+func TestInvalidateUnsafeProposal(t *testing.T) {
 	op_e2e.InitParallel(t, op_e2e.UsesCannon)
 	ctx := context.Background()
 
@@ -802,7 +693,7 @@ func testInvalidateUnsafeProposal(t *testing.T, allocType config.AllocType) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			op_e2e.InitParallel(t, op_e2e.UsesCannon)
-			sys, l1Client := StartFaultDisputeSystem(t, WithSequencerWindowSize(100000), WithBatcherStopped(), WithAllocType(allocType))
+			sys, l1Client := StartFaultDisputeSystem(t, WithSequencerWindowSize(100000), WithBatcherStopped())
 			t.Cleanup(sys.Close)
 
 			blockNum := uint64(1)
@@ -832,15 +723,7 @@ func testInvalidateUnsafeProposal(t *testing.T, allocType config.AllocType) {
 	}
 }
 
-func TestInvalidateProposalForFutureBlock_Standard(t *testing.T) {
-	testInvalidateProposalForFutureBlock(t, config.AllocTypeStandard)
-}
-
-func TestInvalidateProposalForFutureBlock_Multithreaded(t *testing.T) {
-	testInvalidateProposalForFutureBlock(t, config.AllocTypeMTCannon)
-}
-
-func testInvalidateProposalForFutureBlock(t *testing.T, allocType config.AllocType) {
+func TestInvalidateProposalForFutureBlock(t *testing.T) {
 	op_e2e.InitParallel(t, op_e2e.UsesCannon)
 	ctx := context.Background()
 
@@ -872,7 +755,7 @@ func testInvalidateProposalForFutureBlock(t *testing.T, allocType config.AllocTy
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			op_e2e.InitParallel(t, op_e2e.UsesCannon)
-			sys, l1Client := StartFaultDisputeSystem(t, WithSequencerWindowSize(100000), WithAllocType(allocType))
+			sys, l1Client := StartFaultDisputeSystem(t, WithSequencerWindowSize(100000))
 			t.Cleanup(sys.Close)
 
 			farFutureBlockNum := uint64(10_000_000)
@@ -902,19 +785,11 @@ func testInvalidateProposalForFutureBlock(t *testing.T, allocType config.AllocTy
 	}
 }
 
-func TestInvalidateCorrectProposalFutureBlock_Standard(t *testing.T) {
-	testInvalidateCorrectProposalFutureBlock(t, config.AllocTypeStandard)
-}
-
-func TestInvalidateCorrectProposalFutureBlock_Multithreaded(t *testing.T) {
-	testInvalidateCorrectProposalFutureBlock(t, config.AllocTypeMTCannon)
-}
-
-func testInvalidateCorrectProposalFutureBlock(t *testing.T, allocType config.AllocType) {
+func TestInvalidateCorrectProposalFutureBlock(t *testing.T) {
 	op_e2e.InitParallel(t, op_e2e.UsesCannon)
 	ctx := context.Background()
 	// Spin up the system without the batcher so the safe head doesn't advance
-	sys, l1Client := StartFaultDisputeSystem(t, WithBatcherStopped(), WithSequencerWindowSize(100000), WithAllocType(allocType))
+	sys, l1Client := StartFaultDisputeSystem(t, WithBatcherStopped(), WithSequencerWindowSize(100000))
 	t.Cleanup(sys.Close)
 
 	// Create a dispute game factory helper.
@@ -942,19 +817,11 @@ func testInvalidateCorrectProposalFutureBlock(t *testing.T, allocType config.All
 	game.LogGameData(ctx)
 }
 
-func TestOutputCannonHonestSafeTraceExtension_ValidRoot_Standard(t *testing.T) {
-	testOutputCannonHonestSafeTraceExtensionValidRoot(t, config.AllocTypeStandard)
-}
-
-func TestOutputCannonHonestSafeTraceExtension_ValidRoot_Multithreaded(t *testing.T) {
-	testOutputCannonHonestSafeTraceExtensionValidRoot(t, config.AllocTypeMTCannon)
-}
-
-func testOutputCannonHonestSafeTraceExtensionValidRoot(t *testing.T, allocType config.AllocType) {
+func TestOutputCannonHonestSafeTraceExtension_ValidRoot(t *testing.T) {
 	op_e2e.InitParallel(t, op_e2e.UsesCannon)
 
 	ctx := context.Background()
-	sys, l1Client := StartFaultDisputeSystem(t, WithAllocType(allocType))
+	sys, l1Client := StartFaultDisputeSystem(t)
 	t.Cleanup(sys.Close)
 
 	// Wait for there to be there are safe L2 blocks past the claimed safe head that have data available on L1 within
@@ -999,22 +866,16 @@ func testOutputCannonHonestSafeTraceExtensionValidRoot(t *testing.T, allocType c
 	sys.TimeTravelClock.AdvanceTime(game.MaxClockDuration(ctx))
 	require.NoError(t, wait.ForNextBlock(ctx, l1Client))
 
-	game.WaitForGameStatus(ctx, gameTypes.GameStatusDefenderWon)
+	game.WaitForInactivity(ctx, 10, true)
+	game.LogGameData(ctx)
+	require.EqualValues(t, gameTypes.GameStatusDefenderWon, game.Status(ctx))
 }
 
-func TestOutputCannonHonestSafeTraceExtension_InvalidRoot_Standard(t *testing.T) {
-	testOutputCannonHonestSafeTraceExtensionInvalidRoot(t, config.AllocTypeStandard)
-}
-
-func TestOutputCannonHonestSafeTraceExtension_InvalidRoot_Multithreaded(t *testing.T) {
-	testOutputCannonHonestSafeTraceExtensionInvalidRoot(t, config.AllocTypeMTCannon)
-}
-
-func testOutputCannonHonestSafeTraceExtensionInvalidRoot(t *testing.T, allocType config.AllocType) {
+func TestOutputCannonHonestSafeTraceExtension_InvalidRoot(t *testing.T) {
 	op_e2e.InitParallel(t, op_e2e.UsesCannon)
 
 	ctx := context.Background()
-	sys, l1Client := StartFaultDisputeSystem(t, WithAllocType(allocType))
+	sys, l1Client := StartFaultDisputeSystem(t)
 	t.Cleanup(sys.Close)
 
 	// Wait for there to be there are safe L2 blocks past the claimed safe head that have data available on L1 within
@@ -1046,22 +907,16 @@ func testOutputCannonHonestSafeTraceExtensionInvalidRoot(t *testing.T, allocType
 	sys.TimeTravelClock.AdvanceTime(game.MaxClockDuration(ctx))
 	require.NoError(t, wait.ForNextBlock(ctx, l1Client))
 
-	game.WaitForGameStatus(ctx, gameTypes.GameStatusChallengerWon)
+	game.WaitForInactivity(ctx, 10, true)
+	game.LogGameData(ctx)
+	require.EqualValues(t, gameTypes.GameStatusChallengerWon, game.Status(ctx))
 }
 
-func TestAgreeFirstBlockWithOriginOf1_Standard(t *testing.T) {
-	testAgreeFirstBlockWithOriginOf1(t, config.AllocTypeStandard)
-}
-
-func TestAgreeFirstBlockWithOriginOf1_Multithreaded(t *testing.T) {
-	testAgreeFirstBlockWithOriginOf1(t, config.AllocTypeMTCannon)
-}
-
-func testAgreeFirstBlockWithOriginOf1(t *testing.T, allocType config.AllocType) {
+func TestAgreeFirstBlockWithOriginOf1(t *testing.T) {
 	op_e2e.InitParallel(t, op_e2e.UsesCannon)
 
 	ctx := context.Background()
-	sys, _ := StartFaultDisputeSystem(t, WithAllocType(allocType))
+	sys, _ := StartFaultDisputeSystem(t)
 	t.Cleanup(sys.Close)
 
 	rollupClient := sys.RollupClient("sequencer")

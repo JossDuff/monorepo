@@ -6,13 +6,12 @@ import { CrossDomainMessenger } from "src/universal/CrossDomainMessenger.sol";
 
 // Libraries
 import { Predeploys } from "src/libraries/Predeploys.sol";
-import { Constants } from "src/libraries/Constants.sol";
 
 // Interfaces
-import { ISemver } from "interfaces/universal/ISemver.sol";
-import { ISuperchainConfig } from "interfaces/L1/ISuperchainConfig.sol";
-import { ISystemConfig } from "interfaces/L1/ISystemConfig.sol";
-import { IOptimismPortal2 as IOptimismPortal } from "interfaces/L1/IOptimismPortal2.sol";
+import { ISemver } from "src/universal/interfaces/ISemver.sol";
+import { ISuperchainConfig } from "src/L1/interfaces/ISuperchainConfig.sol";
+import { ISystemConfig } from "src/L1/interfaces/ISystemConfig.sol";
+import { IOptimismPortal } from "src/L1/interfaces/IOptimismPortal.sol";
 
 /// @custom:proxied true
 /// @title L1CrossDomainMessenger
@@ -31,12 +30,16 @@ contract L1CrossDomainMessenger is CrossDomainMessenger, ISemver {
     ISystemConfig public systemConfig;
 
     /// @notice Semantic version.
-    /// @custom:semver 2.4.1-beta.6
-    string public constant version = "2.4.1-beta.6";
+    /// @custom:semver 2.4.1-beta.1
+    string public constant version = "2.4.1-beta.1";
 
     /// @notice Constructs the L1CrossDomainMessenger contract.
-    constructor() {
-        _disableInitializers();
+    constructor() CrossDomainMessenger() {
+        initialize({
+            _superchainConfig: ISuperchainConfig(address(0)),
+            _portal: IOptimismPortal(payable(address(0))),
+            _systemConfig: ISystemConfig(address(0))
+        });
     }
 
     /// @notice Initializes the contract.
@@ -48,7 +51,7 @@ contract L1CrossDomainMessenger is CrossDomainMessenger, ISemver {
         IOptimismPortal _portal,
         ISystemConfig _systemConfig
     )
-        external
+        public
         initializer
     {
         superchainConfig = _superchainConfig;
@@ -58,10 +61,8 @@ contract L1CrossDomainMessenger is CrossDomainMessenger, ISemver {
     }
 
     /// @inheritdoc CrossDomainMessenger
-    /// @dev This is added to maintain compatibility with the CrossDomainMessenger abstract contract and should always
-    /// return the ether address and 18 decimals.
-    function gasPayingToken() internal pure override returns (address addr_, uint8 decimals_) {
-        return (Constants.ETHER, 18);
+    function gasPayingToken() internal view override returns (address _addr, uint8 _decimals) {
+        (_addr, _decimals) = systemConfig.gasPayingToken();
     }
 
     /// @notice Getter function for the OptimismPortal contract on this chain.
