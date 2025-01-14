@@ -11,7 +11,7 @@ more about the OP stack architecture here: <https://docs.optimism.io/builders/ch
 original repo: <https://github.com/succinctlabs/op-succinct/>
 forked version tag: `op-succinct-v1.0.0-rc6`
 
-Contains binaries `op-succinct-proposer` and `op-succinct-server` ("proof server"").
+Contains `op-succinct-proposer` and `op-succinct-server` ("proof server"").
 `op-succinct-proposer` monitors the L2 chain and periodically sends a request for
 a proof to `op-succinct-server` in the form of a block range.  `op-succinct-server`
 is a small server that accepts requests for proofs and delegates the actual proof
@@ -24,9 +24,12 @@ vars.
 `op-succinct/proposer/succinct/bin/single-block-proof.rs` is a binary used for
 debugging isolated proof requests and isn't used in prod.
 
-# TODO /op-geth
+# /op-geth
 
-Contains the execution node binary for the op-stack chain.
+original repo: <https://github.com/ethereum-optimism/op-geth>
+forked version tag: v1.101411.0
+
+Contains the execution node for the op-stack chain.
 
 ## jwt.txt
 
@@ -47,7 +50,7 @@ openssl rand -hex 32 > jwt.txt
 original repo: <https://github.com/ethereum-optimism/optimism/>
 forked version tag: `v1.9.3`
 
-Contains the op-stack chain binaries `op-batcher` and `op-node` ("rollup node").
+Contains the op-stack chain `op-batcher` and `op-node` ("rollup node").
 See `optimism/example.env` for required env vars.
 `op-node` can be built with `make op-node` in the `optimism` folder.
 `op-batcher` can be built with `make op-batcher` in the `optimism` folder.
