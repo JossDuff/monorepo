@@ -5,7 +5,7 @@ Extracted source and build code for all the binaries that make up Sigil.
 # /op-succinct
 
 original repo: <https://github.com/succinctlabs/op-succinct/>
-forked version: `op-succinct-v1.0.0-rc6`
+forked version tag: `op-succinct-v1.0.0-rc6`
 
 Contains binaries `op-succinct-proposer` and `op-succinct-server` ("proof server"").
 `op-succinct-proposer` monitors the L2 chain and periodically sends a request for
@@ -23,6 +23,9 @@ debugging isolated proof requests and isn't used in prod.
 
 Contains the execution node binary for the op-stack chain.
 
-# TODO /optimism
+# optimism
 
-Contains the op-stack chain binaries `op-batcher` and `op-node`.
+original repo: <https://github.com/ethereum-optimism/optimism/>
+forked version tag: `v1.9.3`
+
+Contains the op-stack chain binaries `op-batcher` and `op-node` ("rollup node").
