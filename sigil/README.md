@@ -14,7 +14,8 @@ is a small server that accepts requests for proofs and delegates the actual proo
 generation to either a local CUDA accelerated prover (a docker image that is
 started by the server) or the sp1 prover network (currently only runs the CUDA
 prover).  When a proof is done, it returns the proof to `op-succinct-proposer`
-who then posts the proof on-chain.
+who then posts the proof on-chain.  See `op-succinct/example.env` for required env
+vars.
 
 `op-succinct/proposer/succinct/bin/single-block-proof.rs` is a binary used for
 debugging isolated proof requests and isn't used in prod.
@@ -29,3 +30,30 @@ original repo: <https://github.com/ethereum-optimism/optimism/>
 forked version tag: `v1.9.3`
 
 Contains the op-stack chain binaries `op-batcher` and `op-node` ("rollup node").
+`op-batcher` can be built with `make op-batcher` in the `optimism` folder.
+`op-node` can be built with `make op-node` in the `optimism` folder.
+
+`op-batcher` can be run with
+
+```
+./op-batcher \
+  --l2-eth-rpc=http://localhost:8545 \
+  --rollup-rpc=http://localhost:9545 \
+  --poll-interval=1s \
+  --sub-safety-margin=6 \
+  --num-confirmations=1 \
+  --safe-abort-nonce-too-low-count=3 \
+  --resubmission-timeout=30s \
+  --rpc.addr=0.0.0.0 \
+  --rpc.port=8548 \
+  --rpc.enable-admin \
+  --max-channel-duration=25 \
+  --l1-eth-rpc=$L1_RPC_URL \
+  --private-key=$GS_BATCHER_PRIVATE_KEY
+```
+
+`op-node` can be run with
+
+```
+./op-node --l1=$L1_RPC_URL --l2=http://localhost:8551 --rpc.addr=0.0.0.0 --l2.jwt-secret=jwt.txt --l1.beacon=https://prettiest-summer-spring.ethereum-holesky.quiknode.pro --l2.enginekind=geth --sequencer.enabled --sequencer.l1-confs=5 --verifier.l1-confs=4 --rollup.config=./rollup.json --p2p.disable --rpc.enable-admin --p2p.sequencer.key=$GS_SEQUENCER_PRIVATE_KEY
+```
