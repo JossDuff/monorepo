@@ -11,6 +11,10 @@ homepage.workspace = true
 name = "server"
 path = "bin/server.rs"
 
+[[bin]]
+name = "single-block-proof"
+path = "bin/single-block-proof.rs"
+
 [dependencies]
 
 # workspace
