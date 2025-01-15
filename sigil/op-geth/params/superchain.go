@@ -11,7 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-var OPStackSupport = ProtocolVersionV0{Build: [8]byte{}, Major: 9, Minor: 0, Patch: 0, PreRelease: 0}.Encode()
+var OPStackSupport = ProtocolVersionV0{Build: [8]byte{}, Major: 8, Minor: 0, Patch: 0, PreRelease: 0}.Encode()
 
 func init() {
 	for id, ch := range superchain.OPChains {
@@ -49,36 +49,37 @@ func LoadOPStackChainConfig(chainID uint64) (*ChainConfig, error) {
 
 	genesisActivation := uint64(0)
 	out := &ChainConfig{
-		ChainID:                 new(big.Int).SetUint64(chainID),
-		HomesteadBlock:          common.Big0,
-		DAOForkBlock:            nil,
-		DAOForkSupport:          false,
-		EIP150Block:             common.Big0,
-		EIP155Block:             common.Big0,
-		EIP158Block:             common.Big0,
-		ByzantiumBlock:          common.Big0,
-		ConstantinopleBlock:     common.Big0,
-		PetersburgBlock:         common.Big0,
-		IstanbulBlock:           common.Big0,
-		MuirGlacierBlock:        common.Big0,
-		BerlinBlock:             common.Big0,
-		LondonBlock:             common.Big0,
-		ArrowGlacierBlock:       common.Big0,
-		GrayGlacierBlock:        common.Big0,
-		MergeNetsplitBlock:      common.Big0,
-		ShanghaiTime:            chConfig.CanyonTime,  // Shanghai activates with Canyon
-		CancunTime:              chConfig.EcotoneTime, // Cancun activates with Ecotone
-		PragueTime:              nil,
-		BedrockBlock:            common.Big0,
-		RegolithTime:            &genesisActivation,
-		CanyonTime:              chConfig.CanyonTime,
-		EcotoneTime:             chConfig.EcotoneTime,
-		FjordTime:               chConfig.FjordTime,
-		GraniteTime:             chConfig.GraniteTime,
-		HoloceneTime:            chConfig.HoloceneTime,
-		TerminalTotalDifficulty: common.Big0,
-		Ethash:                  nil,
-		Clique:                  nil,
+		ChainID:                       new(big.Int).SetUint64(chainID),
+		HomesteadBlock:                common.Big0,
+		DAOForkBlock:                  nil,
+		DAOForkSupport:                false,
+		EIP150Block:                   common.Big0,
+		EIP155Block:                   common.Big0,
+		EIP158Block:                   common.Big0,
+		ByzantiumBlock:                common.Big0,
+		ConstantinopleBlock:           common.Big0,
+		PetersburgBlock:               common.Big0,
+		IstanbulBlock:                 common.Big0,
+		MuirGlacierBlock:              common.Big0,
+		BerlinBlock:                   common.Big0,
+		LondonBlock:                   common.Big0,
+		ArrowGlacierBlock:             common.Big0,
+		GrayGlacierBlock:              common.Big0,
+		MergeNetsplitBlock:            common.Big0,
+		ShanghaiTime:                  chConfig.CanyonTime,  // Shanghai activates with Canyon
+		CancunTime:                    chConfig.EcotoneTime, // Cancun activates with Ecotone
+		PragueTime:                    nil,
+		BedrockBlock:                  common.Big0,
+		RegolithTime:                  &genesisActivation,
+		CanyonTime:                    chConfig.CanyonTime,
+		EcotoneTime:                   chConfig.EcotoneTime,
+		FjordTime:                     chConfig.FjordTime,
+		GraniteTime:                   chConfig.GraniteTime,
+		HoloceneTime:                  chConfig.HoloceneTime,
+		TerminalTotalDifficulty:       common.Big0,
+		TerminalTotalDifficultyPassed: true,
+		Ethash:                        nil,
+		Clique:                        nil,
 	}
 
 	if chConfig.Optimism != nil {

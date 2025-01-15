@@ -33,7 +33,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/txpool"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto/kzg4844"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
@@ -569,21 +568,9 @@ func (pool *LegacyPool) Pending(filter txpool.PendingFilter) map[common.Address]
 				}
 			}
 		}
-		if filter.MaxDATxSize != nil && !pool.locals.contains(addr) {
-			for i, tx := range txs {
-				estimate := tx.RollupCostData().EstimatedDASize()
-				if estimate.Cmp(filter.MaxDATxSize) > 0 {
-					log.Debug("filtering tx that exceeds max da tx size",
-						"hash", tx.Hash(), "txda", estimate, "dalimit", filter.MaxDATxSize)
-					txs = txs[:i]
-					break
-				}
-			}
-		}
 		if len(txs) > 0 {
 			lazies := make([]*txpool.LazyTransaction, len(txs))
 			for i := 0; i < len(txs); i++ {
-				daBytes := txs[i].RollupCostData().EstimatedDASize()
 				lazies[i] = &txpool.LazyTransaction{
 					Pool:      pool,
 					Hash:      txs[i].Hash(),
@@ -593,7 +580,6 @@ func (pool *LegacyPool) Pending(filter txpool.PendingFilter) map[common.Address]
 					GasTipCap: uint256.MustFromBig(txs[i].GasTipCap()),
 					Gas:       txs[i].Gas(),
 					BlobGas:   txs[i].BlobGas(),
-					DABytes:   daBytes,
 				}
 			}
 			pending[addr] = lazies
@@ -1126,12 +1112,6 @@ func (pool *LegacyPool) Get(hash common.Hash) *types.Transaction {
 // get returns a transaction if it is contained in the pool and nil otherwise.
 func (pool *LegacyPool) get(hash common.Hash) *types.Transaction {
 	return pool.all.Get(hash)
-}
-
-// GetBlobs is not supported by the legacy transaction pool, it is just here to
-// implement the txpool.SubPool interface.
-func (pool *LegacyPool) GetBlobs(vhashes []common.Hash) ([]*kzg4844.Blob, []*kzg4844.Proof) {
-	return nil, nil
 }
 
 // Has returns an indicator whether txpool has a transaction cached with the
@@ -2048,45 +2028,4 @@ func (t *lookup) RemotesBelowTip(threshold *big.Int) types.Transactions {
 // numSlots calculates the number of slots needed for a single transaction.
 func numSlots(tx *types.Transaction) int {
 	return int((tx.Size() + txSlotSize - 1) / txSlotSize)
-}
-
-// Clear implements txpool.SubPool, removing all tracked txs from the pool
-// and rotating the journal.
-func (pool *LegacyPool) Clear() {
-	pool.mu.Lock()
-	defer pool.mu.Unlock()
-
-	// unreserve each tracked account.  Ideally, we could just clear the
-	// reservation map in the parent txpool context.  However, if we clear in
-	// parent context, to avoid exposing the subpool lock, we have to lock the
-	// reservations and then lock each subpool.
-	//
-	// This creates the potential for a deadlock situation:
-	//
-	// * TxPool.Clear locks the reservations
-	// * a new transaction is received which locks the subpool mutex
-	// * TxPool.Clear attempts to lock subpool mutex
-	//
-	// The transaction addition may attempt to reserve the sender addr which
-	// can't happen until Clear releases the reservation lock.  Clear cannot
-	// acquire the subpool lock until the transaction addition is completed.
-	for _, tx := range pool.all.remotes {
-		senderAddr, _ := types.Sender(pool.signer, tx)
-		pool.reserve(senderAddr, false)
-	}
-	for localSender, _ := range pool.locals.accounts {
-		pool.reserve(localSender, false)
-	}
-
-	pool.all = newLookup()
-	pool.priced = newPricedList(pool.all)
-	pool.pending = make(map[common.Address]*list)
-	pool.queue = make(map[common.Address]*list)
-
-	if !pool.config.NoLocals && pool.config.Journal != "" {
-		pool.journal = newTxJournal(pool.config.Journal)
-		if err := pool.journal.rotate(pool.local()); err != nil {
-			log.Warn("Failed to rotate transaction journal", "err", err)
-		}
-	}
 }

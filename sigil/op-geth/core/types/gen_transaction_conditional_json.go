@@ -5,8 +5,9 @@ package types
 import (
 	"encoding/json"
 	"math/big"
+	"bytes"
 
-	"github.com/ethereum/go-ethereum/common/math"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 )
 
 var _ = (*transactionConditionalMarshalling)(nil)
@@ -14,32 +15,36 @@ var _ = (*transactionConditionalMarshalling)(nil)
 // MarshalJSON marshals as JSON.
 func (t TransactionConditional) MarshalJSON() ([]byte, error) {
 	type TransactionConditional struct {
-		KnownAccounts  KnownAccounts         `json:"knownAccounts"`
-		BlockNumberMin *math.HexOrDecimal256 `json:"blockNumberMin,omitempty"`
-		BlockNumberMax *math.HexOrDecimal256 `json:"blockNumberMax,omitempty"`
-		TimestampMin   *math.HexOrDecimal64  `json:"timestampMin,omitempty"`
-		TimestampMax   *math.HexOrDecimal64  `json:"timestampMax,omitempty"`
+		KnownAccounts  KnownAccounts   `json:"knownAccounts"`
+		BlockNumberMin *hexutil.Big    `json:"blockNumberMin,omitempty"`
+		BlockNumberMax *hexutil.Big    `json:"blockNumberMax,omitempty"`
+		TimestampMin   *hexutil.Uint64 `json:"timestampMin,omitempty"`
+		TimestampMax   *hexutil.Uint64 `json:"timestampMax,omitempty"`
 	}
 	var enc TransactionConditional
 	enc.KnownAccounts = t.KnownAccounts
-	enc.BlockNumberMin = (*math.HexOrDecimal256)(t.BlockNumberMin)
-	enc.BlockNumberMax = (*math.HexOrDecimal256)(t.BlockNumberMax)
-	enc.TimestampMin = (*math.HexOrDecimal64)(t.TimestampMin)
-	enc.TimestampMax = (*math.HexOrDecimal64)(t.TimestampMax)
+	enc.BlockNumberMin = (*hexutil.Big)(t.BlockNumberMin)
+	enc.BlockNumberMax = (*hexutil.Big)(t.BlockNumberMax)
+	enc.TimestampMin = (*hexutil.Uint64)(t.TimestampMin)
+	enc.TimestampMax = (*hexutil.Uint64)(t.TimestampMax)
 	return json.Marshal(&enc)
 }
 
 // UnmarshalJSON unmarshals from JSON.
 func (t *TransactionConditional) UnmarshalJSON(input []byte) error {
 	type TransactionConditional struct {
-		KnownAccounts  *KnownAccounts        `json:"knownAccounts"`
-		BlockNumberMin *math.HexOrDecimal256 `json:"blockNumberMin,omitempty"`
-		BlockNumberMax *math.HexOrDecimal256 `json:"blockNumberMax,omitempty"`
-		TimestampMin   *math.HexOrDecimal64  `json:"timestampMin,omitempty"`
-		TimestampMax   *math.HexOrDecimal64  `json:"timestampMax,omitempty"`
+		KnownAccounts  *KnownAccounts  `json:"knownAccounts"`
+		BlockNumberMin *hexutil.Big    `json:"blockNumberMin,omitempty"`
+		BlockNumberMax *hexutil.Big    `json:"blockNumberMax,omitempty"`
+		TimestampMin   *hexutil.Uint64 `json:"timestampMin,omitempty"`
+		TimestampMax   *hexutil.Uint64 `json:"timestampMax,omitempty"`
 	}
 	var dec TransactionConditional
-	if err := json.Unmarshal(input, &dec); err != nil {
+	// --- Not Generated. Disallow unknown fields
+	decoder := json.NewDecoder(bytes.NewReader(input))
+	decoder.DisallowUnknownFields() // Force errors
+	// ---
+	if err := decoder.Decode(&dec); err != nil {
 		return err
 	}
 	if dec.KnownAccounts != nil {

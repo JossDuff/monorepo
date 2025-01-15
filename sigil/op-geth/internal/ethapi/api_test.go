@@ -574,7 +574,7 @@ func allBlobTxs(addr common.Address, config *params.ChainConfig) []txData {
 func newTestAccountManager(t *testing.T) (*accounts.Manager, accounts.Account) {
 	var (
 		dir        = t.TempDir()
-		am         = accounts.NewManager(nil)
+		am         = accounts.NewManager(&accounts.Config{InsecureUnlockAllowed: true})
 		b          = keystore.NewKeyStore(dir, 2, 1)
 		testKey, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	)
@@ -743,6 +743,9 @@ func (b testBackend) SubscribeChainEvent(ch chan<- core.ChainEvent) event.Subscr
 	panic("implement me")
 }
 func (b testBackend) SubscribeChainHeadEvent(ch chan<- core.ChainHeadEvent) event.Subscription {
+	panic("implement me")
+}
+func (b testBackend) SubscribeChainSideEvent(ch chan<- core.ChainSideEvent) event.Subscription {
 	panic("implement me")
 }
 func (b testBackend) SendTx(ctx context.Context, signedTx *types.Transaction) error {
@@ -2356,7 +2359,6 @@ func TestSimulateV1(t *testing.T) {
 				t.Fatalf("failed to unmarshal result: %v", err)
 			}
 			if !reflect.DeepEqual(have, tc.want) {
-				t.Log(string(resBytes))
 				t.Errorf("test %s, result mismatch, have\n%v\n, want\n%v\n", tc.name, have, tc.want)
 			}
 		})
@@ -2765,7 +2767,7 @@ func TestRPCMarshalBlock(t *testing.T) {
 		}
 		txs = append(txs, tx)
 	}
-	block := types.NewBlock(&types.Header{Number: big.NewInt(100)}, &types.Body{Transactions: txs}, nil, blocktest.NewHasher(), types.DefaultBlockConfig)
+	block := types.NewBlock(&types.Header{Number: big.NewInt(100)}, &types.Body{Transactions: txs}, nil, blocktest.NewHasher())
 
 	var testSuite = []struct {
 		inclTx bool
@@ -2980,7 +2982,7 @@ func TestRPCGetBlockOrHeader(t *testing.T) {
 			Address:   common.Address{0x12, 0x34},
 			Amount:    10,
 		}
-		pending = types.NewBlock(&types.Header{Number: big.NewInt(11), Time: 42}, &types.Body{Transactions: types.Transactions{tx}, Withdrawals: types.Withdrawals{withdrawal}}, nil, blocktest.NewHasher(), types.DefaultBlockConfig)
+		pending = types.NewBlock(&types.Header{Number: big.NewInt(11), Time: 42}, &types.Body{Transactions: types.Transactions{tx}, Withdrawals: types.Withdrawals{withdrawal}}, nil, blocktest.NewHasher())
 	)
 	backend := newTestBackend(t, genBlocks, genesis, ethash.NewFaker(), func(i int, b *core.BlockGen) {
 		// Transfer from account[0] to account[1]

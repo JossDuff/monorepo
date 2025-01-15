@@ -42,7 +42,6 @@ import (
 	"github.com/ethereum/go-ethereum/eth/downloader"
 	"github.com/ethereum/go-ethereum/eth/ethconfig"
 	"github.com/ethereum/go-ethereum/eth/gasprice"
-	"github.com/ethereum/go-ethereum/eth/interop"
 	"github.com/ethereum/go-ethereum/eth/protocols/eth"
 	"github.com/ethereum/go-ethereum/eth/protocols/snap"
 	"github.com/ethereum/go-ethereum/eth/tracers"
@@ -51,7 +50,6 @@ import (
 	"github.com/ethereum/go-ethereum/internal/ethapi"
 	"github.com/ethereum/go-ethereum/internal/sequencerapi"
 	"github.com/ethereum/go-ethereum/internal/shutdowncheck"
-	"github.com/ethereum/go-ethereum/internal/version"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/miner"
 	"github.com/ethereum/go-ethereum/node"
@@ -61,7 +59,6 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
-	gethversion "github.com/ethereum/go-ethereum/version"
 	"golang.org/x/time/rate"
 )
 
@@ -81,8 +78,6 @@ type Ethereum struct {
 
 	seqRPCService        *rpc.Client
 	historicalRPCService *rpc.Client
-
-	interopRPC *interop.InteropClient
 
 	// DB interfaces
 	chainDb ethdb.Database // Block chain database
@@ -186,7 +181,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 
 	if !config.SkipBcVersionCheck {
 		if bcVersion != nil && *bcVersion > core.BlockChainVersion {
-			return nil, fmt.Errorf("database version is v%d, Geth %s only supports v%d", *bcVersion, version.WithMeta, core.BlockChainVersion)
+			return nil, fmt.Errorf("database version is v%d, Geth %s only supports v%d", *bcVersion, params.VersionWithMeta, core.BlockChainVersion)
 		} else if bcVersion == nil || *bcVersion < core.BlockChainVersion {
 			if bcVersion != nil { // only print warning on upgrade, not on init
 				log.Warn("Upgrade blockchain database version", "from", dbVer, "to", core.BlockChainVersion)
@@ -211,7 +206,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		}
 	)
 	if config.VMTrace != "" {
-		traceConfig := json.RawMessage("{}")
+		var traceConfig json.RawMessage
 		if config.VMTraceJsonConfig != "" {
 			traceConfig = json.RawMessage(config.VMTraceJsonConfig)
 		}
@@ -275,13 +270,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		blobPool := blobpool.New(config.BlobPool, eth.blockchain)
 		txPools = append(txPools, blobPool)
 	}
-	// if interop is enabled, establish an Interop Filter connected to this Ethereum instance's
-	// simulated logs and message safety check functions
-	poolFilters := []txpool.IngressFilter{}
-	if config.InteropMessageRPC != "" && config.InteropMempoolFiltering {
-		poolFilters = append(poolFilters, txpool.NewInteropFilter(eth.SimLogs, eth.CheckMessages))
-	}
-	eth.txPool, err = txpool.New(config.TxPool.PriceLimit, eth.blockchain, txPools, poolFilters)
+	eth.txPool, err = txpool.New(config.TxPool.PriceLimit, eth.blockchain, txPools)
 	if err != nil {
 		return nil, err
 	}
@@ -331,10 +320,6 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		eth.historicalRPCService = client
 	}
 
-	if config.InteropMessageRPC != "" {
-		eth.interopRPC = interop.NewInteropClient(config.InteropMessageRPC)
-	}
-
 	// Start the RPC service
 	eth.netRPCService = ethapi.NewNetAPI(eth.p2pServer, networkID)
 
@@ -353,7 +338,7 @@ func makeExtraData(extra []byte) []byte {
 	if len(extra) == 0 {
 		// create default extradata
 		extra, _ = rlp.EncodeToBytes([]interface{}{
-			uint(gethversion.Major<<16 | gethversion.Minor<<8 | gethversion.Patch),
+			uint(params.OPVersionMajor<<16 | params.OPVersionMinor<<8 | params.OPVersionPatch),
 			"geth",
 			runtime.Version(),
 			runtime.GOOS,
@@ -497,12 +482,6 @@ func (s *Ethereum) Stop() error {
 	}
 	if s.historicalRPCService != nil {
 		s.historicalRPCService.Close()
-	}
-	if s.interopRPC != nil {
-		s.interopRPC.Close()
-	}
-	if s.miner != nil {
-		s.miner.Close()
 	}
 
 	// Clean shutdown marker as the last thing before closing db

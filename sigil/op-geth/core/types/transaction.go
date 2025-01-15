@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -339,11 +340,8 @@ func (tx *Transaction) To() *common.Address {
 // e.g. a user deposit event, or a L1 info deposit included in a specific L2 block height.
 // Non-deposit transactions return a zeroed hash.
 func (tx *Transaction) SourceHash() common.Hash {
-	switch tx.inner.(type) {
-	case *DepositTx:
-		return tx.inner.(*DepositTx).SourceHash
-	case *depositTxWithNonce:
-		return tx.inner.(*depositTxWithNonce).SourceHash
+	if dep, ok := tx.inner.(*DepositTx); ok {
+		return dep.SourceHash
 	}
 	return common.Hash{}
 }
@@ -351,11 +349,8 @@ func (tx *Transaction) SourceHash() common.Hash {
 // Mint returns the ETH to mint in the deposit tx.
 // This returns nil if there is nothing to mint, or if this is not a deposit tx.
 func (tx *Transaction) Mint() *big.Int {
-	switch tx.inner.(type) {
-	case *DepositTx:
-		return tx.inner.(*DepositTx).Mint
-	case *depositTxWithNonce:
-		return tx.inner.(*depositTxWithNonce).Mint
+	if dep, ok := tx.inner.(*DepositTx); ok {
+		return dep.Mint
 	}
 	return nil
 }
@@ -457,16 +452,10 @@ func (tx *Transaction) EffectiveGasTip(baseFee *big.Int) (*big.Int, error) {
 	}
 	var err error
 	gasFeeCap := tx.GasFeeCap()
-	if gasFeeCap.Cmp(baseFee) < 0 {
+	if gasFeeCap.Cmp(baseFee) == -1 {
 		err = ErrGasFeeCapTooLow
 	}
-	gasFeeCap = gasFeeCap.Sub(gasFeeCap, baseFee)
-
-	gasTipCap := tx.GasTipCap()
-	if gasTipCap.Cmp(gasFeeCap) < 0 {
-		return gasTipCap, err
-	}
-	return gasFeeCap, err
+	return math.BigMin(tx.GasTipCap(), gasFeeCap.Sub(gasFeeCap, baseFee)), err
 }
 
 // EffectiveGasTipValue is identical to EffectiveGasTip, but does not return an
