@@ -23,7 +23,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto/kzg4844"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/holiman/uint256"
 )
@@ -42,8 +41,6 @@ type LazyTransaction struct {
 
 	Gas     uint64 // Amount of gas required by the transaction
 	BlobGas uint64 // Amount of blob gas required by the transaction
-
-	DABytes *big.Int // Amount of data availability bytes this transaction may require if this is a rollup
 }
 
 // Resolve retrieves the full transaction belonging to a lazy handle if it is still
@@ -86,10 +83,6 @@ type PendingFilter struct {
 
 	OnlyPlainTxs bool // Return only plain EVM transactions (peer-join announces, block space filling)
 	OnlyBlobTxs  bool // Return only blob transactions (block blob-space filling)
-
-	// OP stack addition: Maximum l1 data size allowed for an included transaction (for throttling
-	// when batcher is backlogged). Ignored if nil.
-	MaxDATxSize *big.Int
 }
 
 // SubPool represents a specialized transaction pool that lives on its own (e.g.
@@ -130,11 +123,6 @@ type SubPool interface {
 	// Get returns a transaction if it is contained in the pool, or nil otherwise.
 	Get(hash common.Hash) *types.Transaction
 
-	// GetBlobs returns a number of blobs are proofs for the given versioned hashes.
-	// This is a utility method for the engine API, enabling consensus clients to
-	// retrieve blobs from the pools directly instead of the network.
-	GetBlobs(vhashes []common.Hash) ([]*kzg4844.Blob, []*kzg4844.Proof)
-
 	// Add enqueues a batch of transactions into the pool if they are valid. Due
 	// to the large transaction churn, add may postpone fully integrating the tx
 	// to a later point to batch multiple ones together.
@@ -174,7 +162,4 @@ type SubPool interface {
 	// Status returns the known status (unknown/pending/queued) of a transaction
 	// identified by their hashes.
 	Status(hash common.Hash) TxStatus
-
-	// Clear removes all tracked transactions from the pool
-	Clear()
 }

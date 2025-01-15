@@ -223,16 +223,13 @@ func TestReadWriteGenesisAlloc(t *testing.T) {
 			{1}: {Balance: big.NewInt(1), Storage: map[common.Hash]common.Hash{{1}: {1}}},
 			{2}: {Balance: big.NewInt(2), Storage: map[common.Hash]common.Hash{{2}: {2}}},
 		}
-		stateRoot, storageRootMessagePasser, _ = hashAlloc(alloc, false, false)
+		hash, _ = hashAlloc(alloc, false)
 	)
-	if storageRootMessagePasser != (common.Hash{}) {
-		t.Fatalf("unexpected storage root")
-	}
 	blob, _ := json.Marshal(alloc)
-	rawdb.WriteGenesisStateSpec(db, stateRoot, blob)
+	rawdb.WriteGenesisStateSpec(db, hash, blob)
 
 	var reload types.GenesisAlloc
-	err := reload.UnmarshalJSON(rawdb.ReadGenesisStateSpec(db, stateRoot))
+	err := reload.UnmarshalJSON(rawdb.ReadGenesisStateSpec(db, hash))
 	if err != nil {
 		t.Fatalf("Failed to load genesis state %v", err)
 	}
@@ -260,30 +257,31 @@ func newDbConfig(scheme string) *triedb.Config {
 func TestVerkleGenesisCommit(t *testing.T) {
 	var verkleTime uint64 = 0
 	verkleConfig := &params.ChainConfig{
-		ChainID:                 big.NewInt(1),
-		HomesteadBlock:          big.NewInt(0),
-		DAOForkBlock:            nil,
-		DAOForkSupport:          false,
-		EIP150Block:             big.NewInt(0),
-		EIP155Block:             big.NewInt(0),
-		EIP158Block:             big.NewInt(0),
-		ByzantiumBlock:          big.NewInt(0),
-		ConstantinopleBlock:     big.NewInt(0),
-		PetersburgBlock:         big.NewInt(0),
-		IstanbulBlock:           big.NewInt(0),
-		MuirGlacierBlock:        big.NewInt(0),
-		BerlinBlock:             big.NewInt(0),
-		LondonBlock:             big.NewInt(0),
-		ArrowGlacierBlock:       big.NewInt(0),
-		GrayGlacierBlock:        big.NewInt(0),
-		MergeNetsplitBlock:      nil,
-		ShanghaiTime:            &verkleTime,
-		CancunTime:              &verkleTime,
-		PragueTime:              &verkleTime,
-		VerkleTime:              &verkleTime,
-		TerminalTotalDifficulty: big.NewInt(0),
-		Ethash:                  nil,
-		Clique:                  nil,
+		ChainID:                       big.NewInt(1),
+		HomesteadBlock:                big.NewInt(0),
+		DAOForkBlock:                  nil,
+		DAOForkSupport:                false,
+		EIP150Block:                   big.NewInt(0),
+		EIP155Block:                   big.NewInt(0),
+		EIP158Block:                   big.NewInt(0),
+		ByzantiumBlock:                big.NewInt(0),
+		ConstantinopleBlock:           big.NewInt(0),
+		PetersburgBlock:               big.NewInt(0),
+		IstanbulBlock:                 big.NewInt(0),
+		MuirGlacierBlock:              big.NewInt(0),
+		BerlinBlock:                   big.NewInt(0),
+		LondonBlock:                   big.NewInt(0),
+		ArrowGlacierBlock:             big.NewInt(0),
+		GrayGlacierBlock:              big.NewInt(0),
+		MergeNetsplitBlock:            nil,
+		ShanghaiTime:                  &verkleTime,
+		CancunTime:                    &verkleTime,
+		PragueTime:                    &verkleTime,
+		VerkleTime:                    &verkleTime,
+		TerminalTotalDifficulty:       big.NewInt(0),
+		TerminalTotalDifficultyPassed: true,
+		Ethash:                        nil,
+		Clique:                        nil,
 	}
 
 	genesis := &Genesis{

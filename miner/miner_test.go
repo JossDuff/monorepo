@@ -80,7 +80,7 @@ func (bc *testBlockChain) CurrentBlock() *types.Header {
 }
 
 func (bc *testBlockChain) GetBlock(hash common.Hash, number uint64) *types.Block {
-	return types.NewBlock(bc.CurrentBlock(), nil, nil, trie.NewStackTrie(nil), types.DefaultBlockConfig)
+	return types.NewBlock(bc.CurrentBlock(), nil, nil, trie.NewStackTrie(nil))
 }
 
 func (bc *testBlockChain) StateAt(common.Hash) (*state.StateDB, error) {
@@ -164,7 +164,7 @@ func createMiner(t *testing.T) *Miner {
 	blockchain := &testBlockChain{bc.Genesis().Root(), chainConfig, statedb, 10000000, new(event.Feed)}
 
 	pool := legacypool.New(testTxPoolConfig, blockchain)
-	txpool, _ := txpool.New(testTxPoolConfig.PriceLimit, blockchain, []txpool.SubPool{pool}, nil)
+	txpool, _ := txpool.New(testTxPoolConfig.PriceLimit, blockchain, []txpool.SubPool{pool})
 
 	// Create Miner
 	backend := NewMockBackend(bc, txpool)
@@ -188,8 +188,8 @@ func TestRejectedConditionalTx(t *testing.T) {
 	})
 	tx.SetConditional(&types.TransactionConditional{TimestampMax: uint64Ptr(timestamp - 1)})
 
-	// 1 pending tx (synchronously, it has to be there before it can be rejected)
-	miner.txpool.Add(types.Transactions{tx}, true, true)
+	// 1 pending tx
+	miner.txpool.Add(types.Transactions{tx}, true, false)
 	if !miner.txpool.Has(tx.Hash()) {
 		t.Fatalf("conditional tx is not in the mempool")
 	}

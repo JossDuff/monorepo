@@ -18,7 +18,7 @@
 package ethconfig
 
 import (
-	"fmt"
+	"errors"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -139,6 +139,9 @@ type Config struct {
 	VMTrace           string
 	VMTraceJsonConfig string
 
+	// Miscellaneous options
+	DocRoot string `toml:"-"`
+
 	// RPCGasCap is the global gas cap for eth-call variants.
 	RPCGasCap uint64
 
@@ -178,9 +181,6 @@ type Config struct {
 	RollupDisableTxPoolGossip                 bool
 	RollupDisableTxPoolAdmission              bool
 	RollupHaltOnIncompatibleProtocolVersion   string
-
-	InteropMessageRPC       string `toml:",omitempty"`
-	InteropMempoolFiltering bool   `toml:",omitempty"`
 }
 
 // CreateConsensusEngine creates a consensus engine for the given chain config.
@@ -190,8 +190,10 @@ func CreateConsensusEngine(config *params.ChainConfig, db ethdb.Database) (conse
 	if config.Optimism != nil {
 		return beacon.New(&beacon.OpLegacy{}), nil
 	}
-	if config.TerminalTotalDifficulty == nil {
-		return nil, fmt.Errorf("only PoS networks are supported, please transition old ones with Geth v1.13.x")
+	// Geth v1.14.0 dropped support for non-merged networks in any consensus
+	// mode. If such a network is requested, reject startup.
+	if !config.TerminalTotalDifficultyPassed {
+		return nil, errors.New("only PoS networks are supported, please transition old ones with Geth v1.13.x")
 	}
 	// Wrap previously supported consensus engines into their post-merge counterpart
 	if config.Clique != nil {

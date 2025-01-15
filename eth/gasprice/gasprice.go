@@ -130,10 +130,10 @@ func NewOracle(backend OracleBackend, params Config, startPrice *big.Int) *Oracl
 	go func() {
 		var lastHead common.Hash
 		for ev := range headEvent {
-			if ev.Header.ParentHash != lastHead {
+			if ev.Block.ParentHash() != lastHead {
 				cache.Purge()
 			}
-			lastHead = ev.Header.Hash()
+			lastHead = ev.Block.Hash()
 		}
 	}()
 
