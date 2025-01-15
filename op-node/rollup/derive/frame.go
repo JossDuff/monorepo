@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-
-	"github.com/ethereum-optimism/optimism/op-node/rollup/derive/params"
 )
 
 // Frames cannot be larger than 1 MB.
@@ -132,7 +130,7 @@ func ParseFrames(data []byte) ([]Frame, error) {
 	if len(data) == 0 {
 		return nil, errors.New("data array must not be empty")
 	}
-	if data[0] != params.DerivationVersion0 {
+	if data[0] != DerivationVersion0 {
 		return nil, fmt.Errorf("invalid derivation format byte: got %d", data[0])
 	}
 	buf := bytes.NewBuffer(data[1:])

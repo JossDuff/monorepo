@@ -197,17 +197,13 @@ func (m *mockNewHeadSource) SetErr(err error) {
 	m.err = err
 }
 
-func (m *mockNewHeadSource) Subscribe(
+func (m *mockNewHeadSource) EthSubscribe(
 	_ context.Context,
-	namespace string,
 	ch any,
 	_ ...any,
 ) (ethereum.Subscription, error) {
 	m.Lock()
 	defer m.Unlock()
-	if namespace != "eth" {
-		return nil, fmt.Errorf("only support eth RPC subscription, got %q", namespace)
-	}
 	errChan := make(chan error)
 	m.sub = &mockSubscription{errChan, (ch).(chan<- *ethtypes.Header)}
 	if m.err != nil {

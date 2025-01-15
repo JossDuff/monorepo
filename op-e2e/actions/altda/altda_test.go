@@ -5,8 +5,6 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/ethereum-optimism/optimism/op-e2e/config"
-
 	"github.com/ethereum-optimism/optimism/op-e2e/actions/helpers"
 	"github.com/stretchr/testify/require"
 
@@ -56,7 +54,6 @@ func NewL2AltDA(t helpers.Testing, params ...AltDAParam) *L2AltDA {
 		ChannelTimeout:      12,
 		L1BlockTime:         12,
 		UseAltDA:            true,
-		AllocType:           config.AllocTypeAltDA,
 	}
 	for _, apply := range params {
 		apply(p)
@@ -72,7 +69,7 @@ func NewL2AltDA(t helpers.Testing, params ...AltDAParam) *L2AltDA {
 	l1Client := miner.EthClient()
 
 	jwtPath := e2eutils.WriteDefaultJWT(t)
-	engine := helpers.NewL2Engine(t, log, sd.L2Cfg, jwtPath)
+	engine := helpers.NewL2Engine(t, log, sd.L2Cfg, sd.RollupCfg.Genesis.L1, jwtPath)
 	engCl := engine.EngineClient(t, sd.RollupCfg)
 
 	storage := &altda.DAErrFaker{Client: altda.NewMockDAClient(log)}
@@ -85,7 +82,7 @@ func NewL2AltDA(t helpers.Testing, params ...AltDAParam) *L2AltDA {
 
 	daMgr := altda.NewAltDAWithStorage(log, altDACfg, storage, &altda.NoopMetrics{})
 
-	sequencer := helpers.NewL2Sequencer(t, log, l1F, miner.BlobStore(), daMgr, engCl, sd.RollupCfg, 0)
+	sequencer := helpers.NewL2Sequencer(t, log, l1F, miner.BlobStore(), daMgr, engCl, sd.RollupCfg, 0, nil)
 	miner.ActL1SetFeeRecipient(common.Address{'A'})
 	sequencer.ActL2PipelineFull(t)
 
@@ -99,7 +96,7 @@ func NewL2AltDA(t helpers.Testing, params ...AltDAParam) *L2AltDA {
 		AddressCorpora: addresses,
 		Bindings:       helpers.NewL2Bindings(t, cl, engine.GethClient()),
 	}
-	alice := helpers.NewCrossLayerUser(log, dp.Secrets.Alice, rand.New(rand.NewSource(0xa57b)), p.AllocType)
+	alice := helpers.NewCrossLayerUser(log, dp.Secrets.Alice, rand.New(rand.NewSource(0xa57b)))
 	alice.L2.SetUserEnv(l2UserEnv)
 
 	contract, err := bindings.NewDataAvailabilityChallenge(sd.RollupCfg.AltDAConfig.DAChallengeAddress, l1Client)
@@ -136,14 +133,14 @@ func (a *L2AltDA) StorageClient() *altda.DAErrFaker {
 
 func (a *L2AltDA) NewVerifier(t helpers.Testing) *helpers.L2Verifier {
 	jwtPath := e2eutils.WriteDefaultJWT(t)
-	engine := helpers.NewL2Engine(t, a.log, a.sd.L2Cfg, jwtPath)
+	engine := helpers.NewL2Engine(t, a.log, a.sd.L2Cfg, a.sd.RollupCfg.Genesis.L1, jwtPath)
 	engCl := engine.EngineClient(t, a.sd.RollupCfg)
 	l1F, err := sources.NewL1Client(a.miner.RPCClient(), a.log, nil, sources.L1ClientDefaultConfig(a.sd.RollupCfg, false, sources.RPCKindBasic))
 	require.NoError(t, err)
 
 	daMgr := altda.NewAltDAWithStorage(a.log, a.altDACfg, a.storage, &altda.NoopMetrics{})
 
-	verifier := helpers.NewL2Verifier(t, a.log, l1F, a.miner.BlobStore(), daMgr, engCl, a.sd.RollupCfg, &sync.Config{}, safedb.Disabled)
+	verifier := helpers.NewL2Verifier(t, a.log, l1F, a.miner.BlobStore(), daMgr, engCl, a.sd.RollupCfg, &sync.Config{}, safedb.Disabled, nil)
 
 	return verifier
 }
@@ -264,6 +261,10 @@ func (a *L2AltDA) ActL1Finalized(t helpers.Testing) {
 
 // Commitment is challenged but never resolved, chain reorgs when challenge window expires.
 func TestAltDA_ChallengeExpired(gt *testing.T) {
+	if !e2eutils.UseAltDA() {
+		gt.Skip("AltDA is not enabled")
+	}
+
 	t := helpers.NewDefaultTesting(gt)
 	harness := NewL2AltDA(t)
 
@@ -320,6 +321,10 @@ func TestAltDA_ChallengeExpired(gt *testing.T) {
 // Commitment is challenged after sequencer derived the chain but data disappears. A verifier
 // derivation pipeline stalls until the challenge is resolved and then resumes with data from the contract.
 func TestAltDA_ChallengeResolved(gt *testing.T) {
+	if !e2eutils.UseAltDA() {
+		gt.Skip("AltDA is not enabled")
+	}
+
 	t := helpers.NewDefaultTesting(gt)
 	harness := NewL2AltDA(t)
 
@@ -364,6 +369,10 @@ func TestAltDA_ChallengeResolved(gt *testing.T) {
 
 // DA storage service goes offline while sequencer keeps making blocks. When storage comes back online, it should be able to catch up.
 func TestAltDA_StorageError(gt *testing.T) {
+	if !e2eutils.UseAltDA() {
+		gt.Skip("AltDA is not enabled")
+	}
+
 	t := helpers.NewDefaultTesting(gt)
 	harness := NewL2AltDA(t)
 
@@ -389,6 +398,10 @@ func TestAltDA_StorageError(gt *testing.T) {
 // L1 chain reorgs a resolved challenge so it expires instead causing
 // the l2 chain to reorg as well.
 func TestAltDA_ChallengeReorg(gt *testing.T) {
+	if !e2eutils.UseAltDA() {
+		gt.Skip("AltDA is not enabled")
+	}
+
 	t := helpers.NewDefaultTesting(gt)
 	harness := NewL2AltDA(t)
 
@@ -433,6 +446,10 @@ func TestAltDA_ChallengeReorg(gt *testing.T) {
 // Sequencer stalls as data is not available, batcher keeps posting, untracked commitments are
 // challenged and resolved, then sequencer resumes and catches up.
 func TestAltDA_SequencerStalledMultiChallenges(gt *testing.T) {
+	if !e2eutils.UseAltDA() {
+		gt.Skip("AltDA is not enabled")
+	}
+
 	t := helpers.NewDefaultTesting(gt)
 	a := NewL2AltDA(t)
 
@@ -525,6 +542,9 @@ func TestAltDA_SequencerStalledMultiChallenges(gt *testing.T) {
 // Verify that finalization happens based on altDA windows.
 // based on l2_batcher_test.go L2Finalization
 func TestAltDA_Finalization(gt *testing.T) {
+	if !e2eutils.UseAltDA() {
+		gt.Skip("AltDA is not enabled")
+	}
 	t := helpers.NewDefaultTesting(gt)
 	a := NewL2AltDA(t)
 

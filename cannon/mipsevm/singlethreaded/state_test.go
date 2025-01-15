@@ -1,6 +1,3 @@
-//go:build !cannon64
-// +build !cannon64
-
 package singlethreaded
 
 import (
@@ -14,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ethereum-optimism/optimism/cannon/mipsevm"
-	"github.com/ethereum-optimism/optimism/cannon/mipsevm/arch"
 	"github.com/ethereum-optimism/optimism/cannon/mipsevm/memory"
 	"github.com/ethereum-optimism/optimism/cannon/mipsevm/program"
 )
@@ -132,7 +128,7 @@ func TestSerializeStateRoundTrip(t *testing.T) {
 		ExitCode: 1,
 		Exited:   true,
 		Step:     0xdeadbeef,
-		Registers: [32]arch.Word{
+		Registers: [32]uint32{
 			0xdeadbeef,
 			0xdeadbeef,
 			0xc0ffee,

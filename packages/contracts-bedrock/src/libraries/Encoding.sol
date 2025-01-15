@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-// Libraries
 import { Types } from "src/libraries/Types.sol";
 import { Hashing } from "src/libraries/Hashing.sol";
 import { RLPWriter } from "src/libraries/rlp/RLPWriter.sol";
@@ -75,7 +74,6 @@ library Encoding {
         pure
         returns (bytes memory)
     {
-        // nosemgrep: sol-style-use-abi-encodecall
         return abi.encodeWithSignature("relayMessage(address,address,bytes,uint256)", _target, _sender, _data, _nonce);
     }
 
@@ -99,7 +97,6 @@ library Encoding {
         pure
         returns (bytes memory)
     {
-        // nosemgrep: sol-style-use-abi-encodecall
         return abi.encodeWithSignature(
             "relayMessage(uint256,address,address,uint256,uint256,bytes)",
             _nonce,
@@ -138,25 +135,25 @@ library Encoding {
     }
 
     /// @notice Returns an appropriately encoded call to L1Block.setL1BlockValuesEcotone
-    /// @param _baseFeeScalar       L1 base fee Scalar
-    /// @param _blobBaseFeeScalar   L1 blob base fee Scalar
-    /// @param _sequenceNumber      Number of L2 blocks since epoch start.
-    /// @param _timestamp           L1 timestamp.
-    /// @param _number              L1 blocknumber.
-    /// @param _baseFee             L1 base fee.
-    /// @param _blobBaseFee         L1 blob base fee.
-    /// @param _hash                L1 blockhash.
-    /// @param _batcherHash         Versioned hash to authenticate batcher by.
+    /// @param baseFeeScalar       L1 base fee Scalar
+    /// @param blobBaseFeeScalar   L1 blob base fee Scalar
+    /// @param sequenceNumber      Number of L2 blocks since epoch start.
+    /// @param timestamp           L1 timestamp.
+    /// @param number              L1 blocknumber.
+    /// @param baseFee             L1 base fee.
+    /// @param blobBaseFee         L1 blob base fee.
+    /// @param hash                L1 blockhash.
+    /// @param batcherHash         Versioned hash to authenticate batcher by.
     function encodeSetL1BlockValuesEcotone(
-        uint32 _baseFeeScalar,
-        uint32 _blobBaseFeeScalar,
-        uint64 _sequenceNumber,
-        uint64 _timestamp,
-        uint64 _number,
-        uint256 _baseFee,
-        uint256 _blobBaseFee,
-        bytes32 _hash,
-        bytes32 _batcherHash
+        uint32 baseFeeScalar,
+        uint32 blobBaseFeeScalar,
+        uint64 sequenceNumber,
+        uint64 timestamp,
+        uint64 number,
+        uint256 baseFee,
+        uint256 blobBaseFee,
+        bytes32 hash,
+        bytes32 batcherHash
     )
         internal
         pure
@@ -165,15 +162,15 @@ library Encoding {
         bytes4 functionSignature = bytes4(keccak256("setL1BlockValuesEcotone()"));
         return abi.encodePacked(
             functionSignature,
-            _baseFeeScalar,
-            _blobBaseFeeScalar,
-            _sequenceNumber,
-            _timestamp,
-            _number,
-            _baseFee,
-            _blobBaseFee,
-            _hash,
-            _batcherHash
+            baseFeeScalar,
+            blobBaseFeeScalar,
+            sequenceNumber,
+            timestamp,
+            number,
+            baseFee,
+            blobBaseFee,
+            hash,
+            batcherHash
         );
     }
 
@@ -187,7 +184,7 @@ library Encoding {
     /// @param _blobBaseFee         L1 blob base fee.
     /// @param _hash                L1 blockhash.
     /// @param _batcherHash         Versioned hash to authenticate batcher by.
-    function encodeSetL1BlockValuesInterop(
+    function encodeSetL1BlockValuesIsthmus(
         uint32 _baseFeeScalar,
         uint32 _blobBaseFeeScalar,
         uint64 _sequenceNumber,
@@ -202,7 +199,7 @@ library Encoding {
         pure
         returns (bytes memory)
     {
-        bytes4 functionSignature = bytes4(keccak256("setL1BlockValuesInterop()"));
+        bytes4 functionSignature = bytes4(keccak256("setL1BlockValuesIsthmus()"));
         return abi.encodePacked(
             functionSignature,
             _baseFeeScalar,

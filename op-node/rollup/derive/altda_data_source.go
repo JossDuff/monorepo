@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	altda "github.com/ethereum-optimism/optimism/op-alt-da"
-	"github.com/ethereum-optimism/optimism/op-node/rollup/derive/params"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum/go-ethereum/log"
 )
@@ -57,7 +56,7 @@ func (s *AltDADataSource) Next(ctx context.Context) (eth.Data, error) {
 		}
 		// If the tx data type is not altDA, we forward it downstream to let the next
 		// steps validate and potentially parse it as L1 DA inputs.
-		if data[0] != params.DerivationVersion1 {
+		if data[0] != altda.TxDataVersion1 {
 			return data, nil
 		}
 

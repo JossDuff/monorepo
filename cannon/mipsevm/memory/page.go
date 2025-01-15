@@ -70,7 +70,7 @@ type CachedPage struct {
 	Ok [PageSize / 32]bool
 }
 
-func (p *CachedPage) invalidate(pageAddr Word) {
+func (p *CachedPage) Invalidate(pageAddr uint32) {
 	if pageAddr >= PageSize {
 		panic("invalid page addr")
 	}

@@ -25,11 +25,10 @@ func TestHasProposedSince(t *testing.T) {
 		stubRpc, factory := setupDisputeGameFactoryTest(t)
 		withClaims(stubRpc)
 
-		proposed, proposalTime, claim, err := factory.HasProposedSince(context.Background(), proposerAddr, cutOffTime, 0)
+		proposed, proposalTime, err := factory.HasProposedSince(context.Background(), proposerAddr, cutOffTime, 0)
 		require.NoError(t, err)
 		require.False(t, proposed)
 		require.Equal(t, time.Time{}, proposalTime)
-		require.Equal(t, common.Hash{}, claim)
 	})
 
 	t.Run("NoMatchingProposal", func(t *testing.T) {
@@ -50,11 +49,10 @@ func TestHasProposedSince(t *testing.T) {
 			},
 		)
 
-		proposed, proposalTime, claim, err := factory.HasProposedSince(context.Background(), proposerAddr, cutOffTime, 0)
+		proposed, proposalTime, err := factory.HasProposedSince(context.Background(), proposerAddr, cutOffTime, 0)
 		require.NoError(t, err)
 		require.False(t, proposed)
 		require.Equal(t, time.Time{}, proposalTime)
-		require.Equal(t, common.Hash{}, claim)
 	})
 
 	t.Run("MatchingProposalBeforeCutOff", func(t *testing.T) {
@@ -81,11 +79,10 @@ func TestHasProposedSince(t *testing.T) {
 			},
 		)
 
-		proposed, proposalTime, claim, err := factory.HasProposedSince(context.Background(), proposerAddr, cutOffTime, 0)
+		proposed, proposalTime, err := factory.HasProposedSince(context.Background(), proposerAddr, cutOffTime, 0)
 		require.NoError(t, err)
 		require.False(t, proposed)
 		require.Equal(t, time.Time{}, proposalTime)
-		require.Equal(t, common.Hash{}, claim)
 	})
 
 	t.Run("MatchingProposalAtCutOff", func(t *testing.T) {
@@ -112,11 +109,10 @@ func TestHasProposedSince(t *testing.T) {
 			},
 		)
 
-		proposed, proposalTime, claim, err := factory.HasProposedSince(context.Background(), proposerAddr, cutOffTime, 0)
+		proposed, proposalTime, err := factory.HasProposedSince(context.Background(), proposerAddr, cutOffTime, 0)
 		require.NoError(t, err)
 		require.True(t, proposed)
 		require.Equal(t, cutOffTime, proposalTime)
-		require.Equal(t, common.Hash{0xdd}, claim)
 	})
 
 	t.Run("MatchingProposalAfterCutOff", func(t *testing.T) {
@@ -144,11 +140,10 @@ func TestHasProposedSince(t *testing.T) {
 			},
 		)
 
-		proposed, proposalTime, claim, err := factory.HasProposedSince(context.Background(), proposerAddr, cutOffTime, 0)
+		proposed, proposalTime, err := factory.HasProposedSince(context.Background(), proposerAddr, cutOffTime, 0)
 		require.NoError(t, err)
 		require.True(t, proposed)
 		require.Equal(t, expectedProposalTime, proposalTime)
-		require.Equal(t, common.Hash{0xdd}, claim)
 	})
 
 	t.Run("MultipleMatchingProposalAfterCutOff", func(t *testing.T) {
@@ -176,12 +171,11 @@ func TestHasProposedSince(t *testing.T) {
 			},
 		)
 
-		proposed, proposalTime, claim, err := factory.HasProposedSince(context.Background(), proposerAddr, cutOffTime, 0)
+		proposed, proposalTime, err := factory.HasProposedSince(context.Background(), proposerAddr, cutOffTime, 0)
 		require.NoError(t, err)
 		require.True(t, proposed)
 		// Should find the most recent proposal
 		require.Equal(t, expectedProposalTime, proposalTime)
-		require.Equal(t, common.Hash{0xdd}, claim)
 	})
 }
 

@@ -31,17 +31,16 @@ type SuperFaultProofConfig struct {
 	ChallengePeriodSeconds          *big.Int
 	ProofMaturityDelaySeconds       *big.Int
 	DisputeGameFinalityDelaySeconds *big.Int
-	MipsVersion                     *big.Int
 }
 
 type OPCMImplementationsConfig struct {
-	L1ContractsRelease string
+	Release string
 
 	FaultProof SuperFaultProofConfig
 
 	UseInterop bool // to deploy Interop implementation contracts, instead of the regular ones.
 
-	StandardVersionsToml string // serialized string of superchain-registry 'standard-versions-mainnet.toml' file
+	StandardVersionsToml string // serialized string of superchain-registry 'standard-versions.toml' file
 }
 
 type SuperchainConfig struct {
@@ -76,15 +75,7 @@ type L2Config struct {
 	Challenger        common.Address
 	SystemConfigOwner common.Address
 	genesis.L2InitializationConfig
-	Prefund                 map[common.Address]*big.Int
-	SaltMixer               string
-	GasLimit                uint64
-	DisputeGameType         uint32
-	DisputeAbsolutePrestate common.Hash
-	DisputeMaxGameDepth     uint64
-	DisputeSplitDepth       uint64
-	DisputeClockExtension   uint64
-	DisputeMaxClockDuration uint64
+	Prefund map[common.Address]*big.Int
 }
 
 func (c *L2Config) Check(log log.Logger) error {

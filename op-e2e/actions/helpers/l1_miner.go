@@ -16,7 +16,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/trie"
-	"github.com/ethereum/go-ethereum/triedb"
 
 	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
@@ -74,7 +73,7 @@ func (s *L1Miner) ActL1StartBlock(timeDelta uint64) Action {
 
 		parent := s.l1Chain.CurrentHeader()
 		parentHash := parent.Hash()
-		statedb, err := state.New(parent.Root, state.NewDatabase(triedb.NewDatabase(s.l1Database, nil), nil))
+		statedb, err := state.New(parent.Root, state.NewDatabase(s.l1Database), nil)
 		if err != nil {
 			t.Fatalf("failed to init state db around block %s (state %s): %w", parentHash, parent.Root, err)
 		}
@@ -203,10 +202,10 @@ func (s *L1Miner) ActL1SetFeeRecipient(coinbase common.Address) {
 }
 
 // ActL1EndBlock finishes the new L1 block, and applies it to the chain as unsafe block
-func (s *L1Miner) ActL1EndBlock(t Testing) *types.Block {
+func (s *L1Miner) ActL1EndBlock(t Testing) {
 	if !s.l1Building {
 		t.InvalidAction("cannot end L1 block when not building block")
-		return nil
+		return
 	}
 
 	s.l1Building = false
@@ -218,7 +217,7 @@ func (s *L1Miner) ActL1EndBlock(t Testing) *types.Block {
 		withdrawals = make([]*types.Withdrawal, 0)
 	}
 
-	block := types.NewBlock(s.l1BuildingHeader, &types.Body{Transactions: s.L1Transactions, Withdrawals: withdrawals}, s.l1Receipts, trie.NewStackTrie(nil), types.DefaultBlockConfig)
+	block := types.NewBlock(s.l1BuildingHeader, &types.Body{Transactions: s.L1Transactions, Withdrawals: withdrawals}, s.l1Receipts, trie.NewStackTrie(nil))
 	if s.l1Cfg.Config.IsCancun(s.l1BuildingHeader.Number, s.l1BuildingHeader.Time) {
 		parent := s.l1Chain.GetHeaderByHash(s.l1BuildingHeader.ParentHash)
 		var (
@@ -253,12 +252,11 @@ func (s *L1Miner) ActL1EndBlock(t Testing) *types.Block {
 	if err != nil {
 		t.Fatalf("failed to insert block into l1 chain")
 	}
-	return block
 }
 
-func (s *L1Miner) ActEmptyBlock(t Testing) *types.Block {
+func (s *L1Miner) ActEmptyBlock(t Testing) {
 	s.ActL1StartBlock(12)(t)
-	return s.ActL1EndBlock(t)
+	s.ActL1EndBlock(t)
 }
 
 func (s *L1Miner) Close() error {

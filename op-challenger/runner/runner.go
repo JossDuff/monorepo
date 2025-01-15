@@ -5,16 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"math/rand"
+	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/log"
 
 	"github.com/ethereum-optimism/optimism/cannon/mipsevm"
 	"github.com/ethereum-optimism/optimism/op-challenger/config"
@@ -29,7 +25,11 @@ import (
 	opmetrics "github.com/ethereum-optimism/optimism/op-service/metrics"
 	"github.com/ethereum-optimism/optimism/op-service/sources"
 	"github.com/ethereum-optimism/optimism/op-service/sources/batching"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/log"
 )
+
+const mtCannonType = "mt-cannon"
 
 var (
 	ErrUnexpectedStatusCode = errors.New("unexpected status code")
@@ -37,24 +37,20 @@ var (
 
 type Metricer interface {
 	contractMetrics.ContractMetricer
-	metrics.VmMetricer
 
+	RecordVmExecutionTime(vmType string, t time.Duration)
+	RecordVmMemoryUsed(vmType string, memoryUsed uint64)
 	RecordFailure(vmType string)
 	RecordInvalid(vmType string)
 	RecordSuccess(vmType string)
 }
 
-type RunConfig struct {
-	TraceType types.TraceType
-	Name      string
-	Prestate  common.Hash
-}
-
 type Runner struct {
-	log        log.Logger
-	cfg        *config.Config
-	runConfigs []RunConfig
-	m          Metricer
+	log                    log.Logger
+	cfg                    *config.Config
+	addMTCannonPrestate    common.Hash
+	addMTCannonPrestateURL *url.URL
+	m                      Metricer
 
 	running    atomic.Bool
 	ctx        context.Context
@@ -63,12 +59,13 @@ type Runner struct {
 	metricsSrv *httputil.HTTPServer
 }
 
-func NewRunner(logger log.Logger, cfg *config.Config, runConfigs []RunConfig) *Runner {
+func NewRunner(logger log.Logger, cfg *config.Config, mtCannonPrestate common.Hash, mtCannonPrestateURL *url.URL) *Runner {
 	return &Runner{
-		log:        logger,
-		cfg:        cfg,
-		runConfigs: runConfigs,
-		m:          NewMetrics(),
+		log:                    logger,
+		cfg:                    cfg,
+		addMTCannonPrestate:    mtCannonPrestate,
+		addMTCannonPrestateURL: mtCannonPrestateURL,
+		m:                      NewMetrics(),
 	}
 }
 
@@ -94,21 +91,21 @@ func (r *Runner) Start(ctx context.Context) error {
 	}
 	caller := batching.NewMultiCaller(l1Client, batching.DefaultBatchSize)
 
-	for _, runConfig := range r.runConfigs {
+	for _, traceType := range r.cfg.TraceTypes {
 		r.wg.Add(1)
-		go r.loop(ctx, runConfig, rollupClient, caller)
+		go r.loop(ctx, traceType, rollupClient, caller)
 	}
 
-	r.log.Info("Runners started", "num", len(r.runConfigs))
+	r.log.Info("Runners started")
 	return nil
 }
 
-func (r *Runner) loop(ctx context.Context, runConfig RunConfig, client *sources.RollupClient, caller *batching.MultiCaller) {
+func (r *Runner) loop(ctx context.Context, traceType types.TraceType, client *sources.RollupClient, caller *batching.MultiCaller) {
 	defer r.wg.Done()
 	t := time.NewTicker(1 * time.Minute)
 	defer t.Stop()
 	for {
-		r.runAndRecordOnce(ctx, runConfig, client, caller)
+		r.runAndRecordOnce(ctx, traceType, client, caller)
 		select {
 		case <-t.C:
 		case <-ctx.Done():
@@ -117,50 +114,65 @@ func (r *Runner) loop(ctx context.Context, runConfig RunConfig, client *sources.
 	}
 }
 
-func (r *Runner) runAndRecordOnce(ctx context.Context, runConfig RunConfig, client *sources.RollupClient, caller *batching.MultiCaller) {
+func (r *Runner) runAndRecordOnce(ctx context.Context, traceType types.TraceType, client *sources.RollupClient, caller *batching.MultiCaller) {
 	recordError := func(err error, traceType string, m Metricer, log log.Logger) {
 		if errors.Is(err, ErrUnexpectedStatusCode) {
-			log.Error("Incorrect status code", "type", runConfig.Name, "err", err)
+			log.Error("Incorrect status code", "type", traceType, "err", err)
 			m.RecordInvalid(traceType)
 		} else if err != nil {
-			log.Error("Failed to run", "type", runConfig.Name, "err", err)
+			log.Error("Failed to run", "type", traceType, "err", err)
 			m.RecordFailure(traceType)
 		} else {
-			log.Info("Successfully verified output root", "type", runConfig.Name)
+			log.Info("Successfully verified output root", "type", traceType)
 			m.RecordSuccess(traceType)
 		}
 	}
 
-	prestateHash := runConfig.Prestate
-	if prestateHash == (common.Hash{}) {
-		hash, err := r.getPrestateHash(ctx, runConfig.TraceType, caller)
-		if err != nil {
-			recordError(err, runConfig.Name, r.m, r.log)
-			return
-		}
-		prestateHash = hash
+	prestateHash, err := r.getPrestateHash(ctx, traceType, caller)
+	if err != nil {
+		recordError(err, traceType.String(), r.m, r.log)
+		return
 	}
 
 	localInputs, err := r.createGameInputs(ctx, client)
 	if err != nil {
-		recordError(err, runConfig.Name, r.m, r.log)
+		recordError(err, traceType.String(), r.m, r.log)
 		return
 	}
 
 	inputsLogger := r.log.New("l1", localInputs.L1Head, "l2", localInputs.L2Head, "l2Block", localInputs.L2BlockNumber, "claim", localInputs.L2Claim)
-	// Sanitize the directory name.
-	safeName := regexp.MustCompile("[^a-zA-Z0-9_-]").ReplaceAllString(runConfig.Name, "")
-	dir, err := r.prepDatadir(safeName)
-	if err != nil {
-		recordError(err, runConfig.Name, r.m, r.log)
-		return
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		dir, err := r.prepDatadir(traceType.String())
+		if err != nil {
+			recordError(err, traceType.String(), r.m, r.log)
+			return
+		}
+		err = r.runOnce(ctx, inputsLogger.With("type", traceType), traceType, prestateHash, localInputs, dir)
+		recordError(err, traceType.String(), r.m, r.log)
+	}()
+
+	if traceType == types.TraceTypeCannon && r.addMTCannonPrestate != (common.Hash{}) && r.addMTCannonPrestateURL != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			dir, err := r.prepDatadir(mtCannonType)
+			if err != nil {
+				recordError(err, mtCannonType, r.m, r.log)
+				return
+			}
+			logger := inputsLogger.With("type", mtCannonType)
+			err = r.runMTOnce(ctx, logger, localInputs, dir)
+			recordError(err, mtCannonType, r.m, r.log.With(mtCannonType, true))
+		}()
 	}
-	err = r.runOnce(ctx, inputsLogger.With("type", runConfig.Name), runConfig.Name, runConfig.TraceType, prestateHash, localInputs, dir)
-	recordError(err, runConfig.Name, r.m, r.log)
+	wg.Wait()
 }
 
-func (r *Runner) runOnce(ctx context.Context, logger log.Logger, name string, traceType types.TraceType, prestateHash common.Hash, localInputs utils.LocalGameInputs, dir string) error {
-	provider, err := createTraceProvider(ctx, logger, metrics.NewTypedVmMetrics(r.m, name), r.cfg, prestateHash, traceType, localInputs, dir)
+func (r *Runner) runOnce(ctx context.Context, logger log.Logger, traceType types.TraceType, prestateHash common.Hash, localInputs utils.LocalGameInputs, dir string) error {
+	provider, err := createTraceProvider(logger, metrics.NewVmMetrics(r.m, traceType.String()), r.cfg, prestateHash, traceType, localInputs, dir)
 	if err != nil {
 		return fmt.Errorf("failed to create trace provider: %w", err)
 	}
@@ -174,8 +186,23 @@ func (r *Runner) runOnce(ctx context.Context, logger log.Logger, name string, tr
 	return nil
 }
 
-func (r *Runner) prepDatadir(name string) (string, error) {
-	dir := filepath.Join(r.cfg.Datadir, name)
+func (r *Runner) runMTOnce(ctx context.Context, logger log.Logger, localInputs utils.LocalGameInputs, dir string) error {
+	provider, err := createMTTraceProvider(logger, metrics.NewVmMetrics(r.m, mtCannonType), r.cfg.Cannon, r.addMTCannonPrestate, r.addMTCannonPrestateURL, types.TraceTypeCannon, localInputs, dir)
+	if err != nil {
+		return fmt.Errorf("failed to create trace provider: %w", err)
+	}
+	hash, err := provider.Get(ctx, types.RootPosition)
+	if err != nil {
+		return fmt.Errorf("failed to execute trace provider: %w", err)
+	}
+	if hash[0] != mipsevm.VMStatusValid {
+		return fmt.Errorf("%w: %v", ErrUnexpectedStatusCode, hash)
+	}
+	return nil
+}
+
+func (r *Runner) prepDatadir(traceType string) (string, error) {
+	dir := filepath.Join(r.cfg.Datadir, traceType)
 	if err := os.RemoveAll(dir); err != nil {
 		return "", fmt.Errorf("failed to remove old dir: %w", err)
 	}
@@ -196,12 +223,9 @@ func (r *Runner) createGameInputs(ctx context.Context, client *sources.RollupCli
 	}
 	l1Head := status.FinalizedL1
 	if status.FinalizedL1.Number > status.CurrentL1.Number {
-		// Restrict the L1 head to a block that has actually been processed by op-node.
+		// Restrict the L1 head to a block that has actually be processed by op-node.
 		// This only matters if op-node is behind and hasn't processed all finalized L1 blocks yet.
 		l1Head = status.CurrentL1
-	}
-	if l1Head.Number == 0 {
-		return utils.LocalGameInputs{}, errors.New("l1 head is 0")
 	}
 	blockNumber, err := r.findL2BlockNumberToDispute(ctx, client, l1Head.Number, status.FinalizedL2.Number)
 	if err != nil {
@@ -236,32 +260,15 @@ func (r *Runner) findL2BlockNumberToDispute(ctx context.Context, client *sources
 			return l2BlockNum, nil
 		}
 		l1HeadNum -= skipSize
-		prevSafeHead, err := client.SafeHeadAtL1Block(ctx, l1HeadNum)
+		priorSafeHead, err := client.SafeHeadAtL1Block(ctx, l1HeadNum)
 		if err != nil {
 			return 0, fmt.Errorf("failed to get prior safe head at L1 block %v: %w", l1HeadNum, err)
 		}
-		if prevSafeHead.SafeHead.Number < l2BlockNum {
-			switch rand.Intn(3) {
-			case 0: // First block of span batch
-				return prevSafeHead.SafeHead.Number + 1, nil
-			case 1: // Last block of span batch
-				return prevSafeHead.SafeHead.Number, nil
-			case 2: // Random block, probably but not guaranteed to be in the middle of a span batch
-				firstBlockInSpanBatch := prevSafeHead.SafeHead.Number + 1
-				if l2BlockNum <= firstBlockInSpanBatch {
-					// There is only one block in the next batch so we just have to use it
-					return l2BlockNum, nil
-				}
-				offset := rand.Intn(int(l2BlockNum - firstBlockInSpanBatch))
-				return firstBlockInSpanBatch + uint64(offset), nil
-			}
-
-		}
-		if prevSafeHead.SafeHead.Number < l2BlockNum {
+		if priorSafeHead.SafeHead.Number < l2BlockNum {
 			// We walked back far enough to be before the batch that included l2BlockNum
 			// So use the first block after the prior safe head as the disputed block.
 			// It must be the first block in a batch.
-			return prevSafeHead.SafeHead.Number + 1, nil
+			return priorSafeHead.SafeHead.Number + 1, nil
 		}
 	}
 	r.log.Warn("Failed to find prior batch", "l2BlockNum", l2BlockNum, "earliestCheckL1Block", l1HeadNum)

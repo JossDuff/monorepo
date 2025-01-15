@@ -9,7 +9,8 @@ type L1Deployment struct {
 }
 
 type Implementations struct {
-	Opcm                             common.Address `json:"OPCM"`
+	OpcmProxy                        common.Address `json:"OPCMProxy"`
+	OpcmImpl                         common.Address `json:"OPCMImpl"`
 	DelayedWETHImpl                  common.Address `json:"DelayedWETHImpl"`
 	OptimismPortalImpl               common.Address `json:"OptimismPortalImpl"`
 	PreimageOracleSingleton          common.Address `json:"PreimageOracleSingleton"`
@@ -20,7 +21,6 @@ type Implementations struct {
 	L1StandardBridgeImpl             common.Address `json:"L1StandardBridgeImpl"`
 	OptimismMintableERC20FactoryImpl common.Address `json:"OptimismMintableERC20FactoryImpl"`
 	DisputeGameFactoryImpl           common.Address `json:"DisputeGameFactoryImpl"`
-	AnchorStateRegistryImpl          common.Address `json:"AnchorStateRegistryImpl"`
 }
 
 type SuperchainDeployment struct {

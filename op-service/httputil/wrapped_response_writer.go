@@ -1,11 +1,6 @@
 package httputil
 
-import (
-	"bufio"
-	"fmt"
-	"net"
-	"net/http"
-)
+import "net/http"
 
 type WrappedResponseWriter struct {
 	StatusCode  int
@@ -13,11 +8,7 @@ type WrappedResponseWriter struct {
 
 	w           http.ResponseWriter
 	wroteHeader bool
-
-	UpgradeAttempt bool
 }
-
-var _ http.Hijacker = (*WrappedResponseWriter)(nil)
 
 func NewWrappedResponseWriter(w http.ResponseWriter) *WrappedResponseWriter {
 	return &WrappedResponseWriter{
@@ -44,15 +35,4 @@ func (w *WrappedResponseWriter) WriteHeader(statusCode int) {
 	w.wroteHeader = true
 	w.StatusCode = statusCode
 	w.w.WriteHeader(statusCode)
-}
-
-// Hijack implements http.Hijacker, so the WrappedResponseWriter is
-// compatible as middleware for websocket-upgrades that take over the connection.
-func (w *WrappedResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	w.UpgradeAttempt = true
-	h, ok := w.w.(http.Hijacker)
-	if !ok {
-		return nil, nil, fmt.Errorf("response-writer is not a http.Hijacker, cannot turn it into raw connection")
-	}
-	return h.Hijack()
 }

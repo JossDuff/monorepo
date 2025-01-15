@@ -4,7 +4,6 @@ import (
 	"crypto/ecdsa"
 	"testing"
 
-	"github.com/ethereum-optimism/optimism/op-e2e/config"
 	"github.com/ethereum-optimism/optimism/op-e2e/system/e2esys"
 	"github.com/ethereum-optimism/optimism/op-e2e/system/helpers"
 
@@ -16,77 +15,52 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type faultDisputeConfig struct {
-	sysOpts      []e2esys.SystemConfigOpt
-	cfgModifiers []func(cfg *e2esys.SystemConfig)
-}
-
-type faultDisputeConfigOpts func(cfg *faultDisputeConfig)
+type faultDisputeConfigOpts func(cfg *e2esys.SystemConfig)
 
 func WithBatcherStopped() faultDisputeConfigOpts {
-	return func(fdc *faultDisputeConfig) {
-		fdc.cfgModifiers = append(fdc.cfgModifiers, func(cfg *e2esys.SystemConfig) {
-			cfg.DisableBatcher = true
-		})
+	return func(cfg *e2esys.SystemConfig) {
+		cfg.DisableBatcher = true
 	}
 }
 
 func WithBlobBatches() faultDisputeConfigOpts {
-	return func(fdc *faultDisputeConfig) {
-		fdc.cfgModifiers = append(fdc.cfgModifiers, func(cfg *e2esys.SystemConfig) {
-			cfg.DataAvailabilityType = batcherFlags.BlobsType
+	return func(cfg *e2esys.SystemConfig) {
+		cfg.DataAvailabilityType = batcherFlags.BlobsType
 
-			genesisActivation := hexutil.Uint64(0)
-			cfg.DeployConfig.L1CancunTimeOffset = &genesisActivation
-			cfg.DeployConfig.L2GenesisDeltaTimeOffset = &genesisActivation
-			cfg.DeployConfig.L2GenesisEcotoneTimeOffset = &genesisActivation
-		})
+		genesisActivation := hexutil.Uint64(0)
+		cfg.DeployConfig.L1CancunTimeOffset = &genesisActivation
+		cfg.DeployConfig.L2GenesisDeltaTimeOffset = &genesisActivation
+		cfg.DeployConfig.L2GenesisEcotoneTimeOffset = &genesisActivation
 	}
 }
 
 func WithEcotone() faultDisputeConfigOpts {
-	return func(fdc *faultDisputeConfig) {
-		fdc.cfgModifiers = append(fdc.cfgModifiers, func(cfg *e2esys.SystemConfig) {
-			genesisActivation := hexutil.Uint64(0)
-			cfg.DeployConfig.L1CancunTimeOffset = &genesisActivation
-			cfg.DeployConfig.L2GenesisDeltaTimeOffset = &genesisActivation
-			cfg.DeployConfig.L2GenesisEcotoneTimeOffset = &genesisActivation
-		})
+	return func(cfg *e2esys.SystemConfig) {
+		genesisActivation := hexutil.Uint64(0)
+		cfg.DeployConfig.L1CancunTimeOffset = &genesisActivation
+		cfg.DeployConfig.L2GenesisDeltaTimeOffset = &genesisActivation
+		cfg.DeployConfig.L2GenesisEcotoneTimeOffset = &genesisActivation
 	}
 }
 
 func WithSequencerWindowSize(size uint64) faultDisputeConfigOpts {
-	return func(fdc *faultDisputeConfig) {
-		fdc.cfgModifiers = append(fdc.cfgModifiers, func(cfg *e2esys.SystemConfig) {
-			cfg.DeployConfig.SequencerWindowSize = size
-		})
-	}
-}
-
-func WithAllocType(allocType config.AllocType) faultDisputeConfigOpts {
-	return func(fdc *faultDisputeConfig) {
-		fdc.sysOpts = append(fdc.sysOpts, e2esys.WithAllocType(allocType))
+	return func(cfg *e2esys.SystemConfig) {
+		cfg.DeployConfig.SequencerWindowSize = size
 	}
 }
 
 func StartFaultDisputeSystem(t *testing.T, opts ...faultDisputeConfigOpts) (*e2esys.System, *ethclient.Client) {
-	fdc := new(faultDisputeConfig)
-	for _, opt := range opts {
-		opt(fdc)
-	}
-
-	cfg := e2esys.DefaultSystemConfig(t, fdc.sysOpts...)
+	cfg := e2esys.DefaultSystemConfig(t)
 	delete(cfg.Nodes, "verifier")
 	cfg.Nodes["sequencer"].SafeDBPath = t.TempDir()
-	cfg.DeployConfig.SequencerWindowSize = 30
+	cfg.DeployConfig.SequencerWindowSize = 4
 	cfg.DeployConfig.FinalizationPeriodSeconds = 2
 	cfg.SupportL1TimeTravel = true
 	// Disable proposer creating fast games automatically - required games are manually created
 	cfg.DisableProposer = true
-	for _, opt := range fdc.cfgModifiers {
+	for _, opt := range opts {
 		opt(&cfg)
 	}
-
 	sys, err := cfg.Start(t)
 	require.Nil(t, err, "Error starting up system")
 	return sys, sys.NodeClient("l1")

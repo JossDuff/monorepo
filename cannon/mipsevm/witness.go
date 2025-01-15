@@ -1,9 +1,6 @@
 package mipsevm
 
-import (
-	"github.com/ethereum-optimism/optimism/cannon/mipsevm/arch"
-	"github.com/ethereum/go-ethereum/common"
-)
+import "github.com/ethereum/go-ethereum/common"
 
 type LocalContext common.Hash
 
@@ -16,7 +13,7 @@ type StepWitness struct {
 
 	PreimageKey    [32]byte // zeroed when no pre-image is accessed
 	PreimageValue  []byte   // including the 8-byte length prefix
-	PreimageOffset arch.Word
+	PreimageOffset uint32
 }
 
 func (wit *StepWitness) HasPreimage() bool {

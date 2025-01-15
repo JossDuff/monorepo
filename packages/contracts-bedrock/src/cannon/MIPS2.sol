@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.15;
 
-// Libraries
+import { ISemver } from "src/universal/interfaces/ISemver.sol";
+import { IPreimageOracle } from "./interfaces/IPreimageOracle.sol";
 import { MIPSMemory } from "src/cannon/libraries/MIPSMemory.sol";
 import { MIPSSyscalls as sys } from "src/cannon/libraries/MIPSSyscalls.sol";
 import { MIPSState as st } from "src/cannon/libraries/MIPSState.sol";
@@ -10,10 +11,6 @@ import { VMStatuses } from "src/dispute/lib/Types.sol";
 import {
     InvalidMemoryProof, InvalidRMWInstruction, InvalidSecondMemoryProof
 } from "src/cannon/libraries/CannonErrors.sol";
-
-// Interfaces
-import { ISemver } from "interfaces/universal/ISemver.sol";
-import { IPreimageOracle } from "interfaces/cannon/IPreimageOracle.sol";
 
 /// @title MIPS2
 /// @notice The MIPS2 contract emulates a single MIPS instruction.
@@ -37,9 +34,6 @@ contract MIPS2 is ISemver {
         uint32[32] registers;
     }
 
-    uint8 internal constant LL_STATUS_NONE = 0;
-    uint8 internal constant LL_STATUS_ACTIVE = 1;
-
     /// @notice Stores the VM state.
     ///         Total state size: 32 + 32 + 4 + 4 + 1 + 4 + 4 + 1 + 1 + 8 + 8 + 4 + 1 + 32 + 32 + 4 = 172 bytes
     ///         If nextPC != pc + 4, then the VM is executing a branch/jump delay slot.
@@ -48,7 +42,7 @@ contract MIPS2 is ISemver {
         bytes32 preimageKey;
         uint32 preimageOffset;
         uint32 heap;
-        uint8 llReservationStatus;
+        bool llReservationActive;
         uint32 llAddress;
         uint32 llOwnerThread;
         uint8 exitCode;
@@ -63,8 +57,8 @@ contract MIPS2 is ISemver {
     }
 
     /// @notice The semantic version of the MIPS2 contract.
-    /// @custom:semver 1.0.0-beta.27
-    string public constant version = "1.0.0-beta.27";
+    /// @custom:semver 1.0.0-beta.11
+    string public constant version = "1.0.0-beta.11";
 
     /// @notice The preimage oracle contract.
     IPreimageOracle internal immutable ORACLE;
@@ -105,39 +99,7 @@ contract MIPS2 is ISemver {
     /// the current thread stack.
     /// @param _localContext The local key context for the preimage oracle. Optional, can be set as a constant
     ///                      if the caller only requires one set of local keys.
-    /// @return postState_ The hash of the post state witness after the state transition.
-    function step(
-        bytes calldata _stateData,
-        bytes calldata _proof,
-        bytes32 _localContext
-    )
-        public
-        returns (bytes32 postState_)
-    {
-        postState_ = doStep(_stateData, _proof, _localContext);
-        assertPostStateChecks();
-    }
-
-    function assertPostStateChecks() internal pure {
-        State memory state;
-        assembly {
-            state := STATE_MEM_OFFSET
-        }
-
-        bytes32 activeStack = state.traverseRight ? state.rightThreadStack : state.leftThreadStack;
-        if (activeStack == EMPTY_THREAD_ROOT) {
-            revert("MIPS2: post-state active thread stack is empty");
-        }
-    }
-
-    function doStep(
-        bytes calldata _stateData,
-        bytes calldata _proof,
-        bytes32 _localContext
-    )
-        internal
-        returns (bytes32)
-    {
+    function step(bytes calldata _stateData, bytes calldata _proof, bytes32 _localContext) public returns (bytes32) {
         unchecked {
             State memory state;
             ThreadState memory thread;
@@ -179,7 +141,7 @@ contract MIPS2 is ISemver {
                 c, m := putField(c, m, 32) // preimageKey
                 c, m := putField(c, m, 4) // preimageOffset
                 c, m := putField(c, m, 4) // heap
-                c, m := putField(c, m, 1) // llReservationStatus
+                c, m := putField(c, m, 1) // llReservationActive
                 c, m := putField(c, m, 4) // llAddress
                 c, m := putField(c, m, 4) // llOwnerThread
                 c, m := putField(c, m, 1) // exitCode
@@ -200,11 +162,8 @@ contract MIPS2 is ISemver {
                 return outputState();
             }
 
-            if (
-                (state.leftThreadStack == EMPTY_THREAD_ROOT && !state.traverseRight)
-                    || (state.rightThreadStack == EMPTY_THREAD_ROOT && state.traverseRight)
-            ) {
-                revert("MIPS2: active thread stack is empty");
+            if (state.leftThreadStack == EMPTY_THREAD_ROOT && state.rightThreadStack == EMPTY_THREAD_ROOT) {
+                revert("MIPS2: illegal vm state");
             }
 
             state.step += 1;
@@ -245,8 +204,10 @@ contract MIPS2 is ISemver {
                     // timeout! Allow execution
                     return onWaitComplete(thread, true);
                 } else {
-                    uint32 futexVal = getFutexValue(thread.futexAddr);
-                    if (thread.futexVal == futexVal) {
+                    uint32 mem = MIPSMemory.readMem(
+                        state.memRoot, thread.futexAddr & 0xFFffFFfc, MIPSMemory.memoryProofOffset(MEM_PROOF_OFFSET, 1)
+                    );
+                    if (thread.futexVal == mem) {
                         // still got expected value, continue sleeping, try next thread.
                         preemptThread(state, thread);
                         return outputState();
@@ -305,14 +266,14 @@ contract MIPS2 is ISemver {
     }
 
     function handleMemoryUpdate(State memory _state, uint32 _memAddr) internal pure {
-        if (_memAddr == (0xFFFFFFFC & _state.llAddress)) {
+        if (_memAddr == _state.llAddress) {
             // Reserved address was modified, clear the reservation
             clearLLMemoryReservation(_state);
         }
     }
 
     function clearLLMemoryReservation(State memory _state) internal pure {
-        _state.llReservationStatus = LL_STATUS_NONE;
+        _state.llReservationActive = false;
         _state.llAddress = 0;
         _state.llOwnerThread = 0;
     }
@@ -331,28 +292,25 @@ contract MIPS2 is ISemver {
             uint32 base = _thread.registers[baseReg];
             uint32 rtReg = (_insn >> 16) & 0x1F;
             uint32 offset = ins.signExtendImmediate(_insn);
-            uint32 addr = base + offset;
+
+            uint32 effAddr = (base + offset) & 0xFFFFFFFC;
+            uint256 memProofOffset = MIPSMemory.memoryProofOffset(MEM_PROOF_OFFSET, 1);
+            uint32 mem = MIPSMemory.readMem(_state.memRoot, effAddr, memProofOffset);
 
             uint32 retVal = 0;
             uint32 threadId = _thread.threadID;
             if (_opcode == ins.OP_LOAD_LINKED) {
-                retVal = loadWord(_state, addr);
-
-                _state.llReservationStatus = LL_STATUS_ACTIVE;
-                _state.llAddress = addr;
+                retVal = mem;
+                _state.llReservationActive = true;
+                _state.llAddress = effAddr;
                 _state.llOwnerThread = threadId;
             } else if (_opcode == ins.OP_STORE_CONDITIONAL) {
                 // Check if our memory reservation is still intact
-                if (
-                    _state.llReservationStatus == LL_STATUS_ACTIVE && _state.llOwnerThread == threadId
-                        && _state.llAddress == addr
-                ) {
+                if (_state.llReservationActive && _state.llOwnerThread == threadId && _state.llAddress == effAddr) {
                     // Complete atomic update: set memory and return 1 for success
                     clearLLMemoryReservation(_state);
-
                     uint32 val = _thread.registers[rtReg];
-                    storeWord(_state, addr, val);
-
+                    _state.memRoot = MIPSMemory.writeMem(effAddr, memProofOffset, val);
                     retVal = 1;
                 } else {
                     // Atomic update failed, return 0 for failure
@@ -369,18 +327,6 @@ contract MIPS2 is ISemver {
 
             return outputState();
         }
-    }
-
-    function loadWord(State memory _state, uint32 _addr) internal pure returns (uint32 val_) {
-        uint32 effAddr = _addr & 0xFFFFFFFC;
-        uint256 memProofOffset = MIPSMemory.memoryProofOffset(MEM_PROOF_OFFSET, 1);
-        val_ = MIPSMemory.readMem(_state.memRoot, effAddr, memProofOffset);
-    }
-
-    function storeWord(State memory _state, uint32 _addr, uint32 _val) internal pure {
-        uint32 effAddr = _addr & 0xFFFFFFFC;
-        uint256 memProofOffset = MIPSMemory.memoryProofOffset(MEM_PROOF_OFFSET, 1);
-        _state.memRoot = MIPSMemory.writeMem(effAddr, memProofOffset, _val);
     }
 
     function handleSyscall(bytes32 _localContext) internal returns (bytes32 out_) {
@@ -426,10 +372,10 @@ contract MIPS2 is ISemver {
                 for (uint256 i; i < 32; i++) {
                     newThread.registers[i] = thread.registers[i];
                 }
-                newThread.registers[sys.REG_SP] = a1; // set stack pointer
+                newThread.registers[29] = a1; // set stack pointer
                 // the child will perceive a 0 value as returned value instead, and no error
-                newThread.registers[sys.REG_SYSCALL_RET1] = 0;
-                newThread.registers[sys.REG_SYSCALL_ERRNO] = 0;
+                newThread.registers[2] = 0;
+                newThread.registers[7] = 0;
                 state.nextThreadID++;
 
                 // Preempt this thread for the new one. But not before updating PCs
@@ -460,7 +406,7 @@ contract MIPS2 is ISemver {
                 // Encapsulate execution to avoid stack-too-deep error
                 (v0, v1) = execSysRead(state, args);
             } else if (syscall_no == sys.SYS_WRITE) {
-                sys.SysWriteParams memory args = sys.SysWriteParams({
+                (v0, v1, state.preimageKey, state.preimageOffset) = sys.handleSysWrite({
                     _a0: a0,
                     _a1: a1,
                     _a2: a2,
@@ -469,7 +415,6 @@ contract MIPS2 is ISemver {
                     _proofOffset: MIPSMemory.memoryProofOffset(MEM_PROOF_OFFSET, 1),
                     _memRoot: state.memRoot
                 });
-                (v0, v1, state.preimageKey, state.preimageOffset) = sys.handleSysWrite(args);
             } else if (syscall_no == sys.SYS_FCNTL) {
                 (v0, v1) = sys.handleSysFcntl(a0, a1);
             } else if (syscall_no == sys.SYS_GETTID) {
@@ -486,16 +431,16 @@ contract MIPS2 is ISemver {
                 return outputState();
             } else if (syscall_no == sys.SYS_FUTEX) {
                 // args: a0 = addr, a1 = op, a2 = val, a3 = timeout
-                uint32 effFutexAddr = a0 & 0xFFffFFfc;
+                uint32 effAddr = a0 & 0xFFffFFfc;
                 if (a1 == sys.FUTEX_WAIT_PRIVATE) {
-                    uint32 futexVal = getFutexValue(effFutexAddr);
-                    uint32 targetValue = a2;
-                    if (futexVal != targetValue) {
+                    uint32 mem =
+                        MIPSMemory.readMem(state.memRoot, effAddr, MIPSMemory.memoryProofOffset(MEM_PROOF_OFFSET, 1));
+                    if (mem != a2) {
                         v0 = sys.SYS_ERROR_SIGNAL;
                         v1 = sys.EAGAIN;
                     } else {
-                        thread.futexAddr = effFutexAddr;
-                        thread.futexVal = targetValue;
+                        thread.futexAddr = effAddr;
+                        thread.futexVal = a2;
                         thread.futexTimeoutStep = a3 == 0 ? sys.FUTEX_NO_TIMEOUT : state.step + sys.FUTEX_TIMEOUT_STEPS;
                         // Leave cpu scalars as-is. This instruction will be completed by `onWaitComplete`
                         updateCurrentThreadRoot();
@@ -504,7 +449,7 @@ contract MIPS2 is ISemver {
                 } else if (a1 == sys.FUTEX_WAKE_PRIVATE) {
                     // Trigger thread traversal starting from the left stack until we find one waiting on the wakeup
                     // address
-                    state.wakeup = effFutexAddr;
+                    state.wakeup = effAddr;
                     // Don't indicate to the program that we've woken up a waiting thread, as there are no guarantees.
                     // The woken up thread should indicate this in userspace.
                     v0 = 0;
@@ -589,9 +534,7 @@ contract MIPS2 is ISemver {
                 // ignored
             } else if (syscall_no == sys.SYS_PREAD64) {
                 // ignored
-            } else if (syscall_no == sys.SYS_STAT) {
-                // ignored
-            } else if (syscall_no == sys.SYS_FSTAT) {
+            } else if (syscall_no == sys.SYS_FSTAT64) {
                 // ignored
             } else if (syscall_no == sys.SYS_OPENAT) {
                 // ignored
@@ -613,9 +556,13 @@ contract MIPS2 is ISemver {
                 // ignored
             } else if (syscall_no == sys.SYS_UNAME) {
                 // ignored
+            } else if (syscall_no == sys.SYS_STAT64) {
+                // ignored
             } else if (syscall_no == sys.SYS_GETUID) {
                 // ignored
             } else if (syscall_no == sys.SYS_GETGID) {
+                // ignored
+            } else if (syscall_no == sys.SYS_LLSEEK) {
                 // ignored
             } else if (syscall_no == sys.SYS_MINCORE) {
                 // ignored
@@ -629,16 +576,8 @@ contract MIPS2 is ISemver {
                 // ignored
             } else if (syscall_no == sys.SYS_TIMERDELETE) {
                 // ignored
-            } else if (syscall_no == sys.SYS_GETRLIMIT) {
-                // ignored
-            } else if (syscall_no == sys.SYS_LSEEK) {
-                // ignored
             } else {
-                if (syscall_no == sys.SYS_FSTAT64 || syscall_no == sys.SYS_STAT64 || syscall_no == sys.SYS_LLSEEK) {
-                    // noop
-                } else {
-                    revert("MIPS2: unimplemented syscall");
-                }
+                revert("MIPS2: unimplemented syscall");
             }
 
             st.CpuScalars memory cpu = getCpuScalars(thread);
@@ -656,11 +595,11 @@ contract MIPS2 is ISemver {
     )
         internal
         view
-        returns (uint32 v0_, uint32 v1_)
+        returns (uint32 v0, uint32 v1)
     {
         bool memUpdated;
         uint32 memAddr;
-        (v0_, v1_, _state.preimageOffset, _state.memRoot, memUpdated, memAddr) = sys.handleSysRead(_args);
+        (v0, v1, _state.preimageOffset, _state.memRoot, memUpdated, memAddr) = sys.handleSysRead(_args);
         if (memUpdated) {
             handleMemoryUpdate(_state, memAddr);
         }
@@ -690,7 +629,7 @@ contract MIPS2 is ISemver {
             from, to := copyMem(from, to, 32) // preimageKey
             from, to := copyMem(from, to, 4) // preimageOffset
             from, to := copyMem(from, to, 4) // heap
-            from, to := copyMem(from, to, 1) // llReservationStatus
+            from, to := copyMem(from, to, 1) // llReservationActive
             from, to := copyMem(from, to, 4) // llAddress
             from, to := copyMem(from, to, 4) // llOwnerThread
             let exitCode := mload(from)
@@ -778,7 +717,7 @@ contract MIPS2 is ISemver {
     )
         internal
         pure
-        returns (bool changedDirections_)
+        returns (bool _changedDirections)
     {
         // pop thread from the current stack and push to the other stack
         if (_state.traverseRight) {
@@ -793,7 +732,7 @@ contract MIPS2 is ISemver {
         bytes32 current = _state.traverseRight ? _state.rightThreadStack : _state.leftThreadStack;
         if (current == EMPTY_THREAD_ROOT) {
             _state.traverseRight = !_state.traverseRight;
-            changedDirections_ = true;
+            _changedDirections = true;
         }
         _state.stepsSinceLastContextSwitch = 0;
     }
@@ -829,10 +768,10 @@ contract MIPS2 is ISemver {
         return inactiveStack == EMPTY_THREAD_ROOT && currentStackIsAlmostEmpty;
     }
 
-    function computeThreadRoot(bytes32 _currentRoot, ThreadState memory _thread) internal pure returns (bytes32 out_) {
+    function computeThreadRoot(bytes32 _currentRoot, ThreadState memory _thread) internal pure returns (bytes32 _out) {
         // w_i = hash(w_0 ++ hash(thread))
         bytes32 threadRoot = outputThreadState(_thread);
-        out_ = keccak256(abi.encodePacked(_currentRoot, threadRoot));
+        _out = keccak256(abi.encodePacked(_currentRoot, threadRoot));
     }
 
     function outputThreadState(ThreadState memory _thread) internal pure returns (bytes32 out_) {
@@ -939,17 +878,5 @@ contract MIPS2 is ISemver {
         }
         // verify we have enough calldata
         require(s >= (THREAD_PROOF_OFFSET + 198), "insufficient calldata for thread witness"); // 166 + 32
-    }
-
-    /// @notice Loads a 32-bit futex value at _vAddr
-    function getFutexValue(uint32 _vAddr) internal pure returns (uint32 out_) {
-        State memory state;
-        assembly {
-            state := STATE_MEM_OFFSET
-        }
-
-        uint32 effAddr = _vAddr & 0xFFffFFfc;
-        uint256 memProofOffset = MIPSMemory.memoryProofOffset(MEM_PROOF_OFFSET, 1);
-        return MIPSMemory.readMem(state.memRoot, effAddr, memProofOffset);
     }
 }

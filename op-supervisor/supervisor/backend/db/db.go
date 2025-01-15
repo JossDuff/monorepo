@@ -1,21 +1,24 @@
 package db
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/log"
 
-	"github.com/ethereum-optimism/optimism/op-node/rollup/event"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
-	"github.com/ethereum-optimism/optimism/op-service/locks"
-	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/db/fromda"
+	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/db/entrydb"
+	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/db/heads"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/db/logs"
-	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/depset"
-	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/superevents"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/types"
+)
+
+var (
+	ErrUnknownChain = errors.New("unknown chain")
 )
 
 type LogStorage interface {
@@ -30,171 +33,261 @@ type LogStorage interface {
 
 	LatestSealedBlockNum() (n uint64, ok bool)
 
-	// FindSealedBlock finds the requested block by number, to check if it exists,
-	// returning the block seal if it was found.
-	// returns ErrFuture if the block is too new to be able to tell.
-	FindSealedBlock(number uint64) (block types.BlockSeal, err error)
+	// FindSealedBlock finds the requested block, to check if it exists,
+	// returning the next index after it where things continue from.
+	// returns ErrFuture if the block is too new to be able to tell
+	// returns ErrDifferent if the known block does not match
+	FindSealedBlock(block eth.BlockID) (nextEntry entrydb.EntryIdx, err error)
 
-	IteratorStartingAt(sealedNum uint64, logsSince uint32) (logs.Iterator, error)
+	IteratorStartingAt(i entrydb.EntryIdx) (logs.Iterator, error)
 
-	// Contains returns no error iff the specified logHash is recorded in the specified blockNum and logIdx.
-	// If the log is out of reach, then ErrFuture is returned.
-	// If the log is determined to conflict with the canonical chain, then ErrConflict is returned.
-	// logIdx is the index of the log in the array of all logs in the block.
-	// This can be used to check the validity of cross-chain interop events.
-	// The block-seal of the blockNum block, that the log was included in, is returned.
-	// This seal may be fully zeroed, without error, if the block isn't fully known yet.
-	Contains(blockNum uint64, logIdx uint32, logHash common.Hash) (includedIn types.BlockSeal, err error)
-
-	// OpenBlock accumulates the ExecutingMessage events for a block and returns them
-	OpenBlock(blockNum uint64) (ref eth.BlockRef, logCount uint32, execMsgs map[uint32]*types.ExecutingMessage, err error)
-}
-
-type LocalDerivedFromStorage interface {
-	First() (derivedFrom types.BlockSeal, derived types.BlockSeal, err error)
-	Latest() (derivedFrom types.BlockSeal, derived types.BlockSeal, err error)
-	AddDerived(derivedFrom eth.BlockRef, derived eth.BlockRef) error
-	LastDerivedAt(derivedFrom eth.BlockID) (derived types.BlockSeal, err error)
-	DerivedFrom(derived eth.BlockID) (derivedFrom types.BlockSeal, err error)
-	FirstAfter(derivedFrom, derived eth.BlockID) (nextDerivedFrom, nextDerived types.BlockSeal, err error)
-	NextDerivedFrom(derivedFrom eth.BlockID) (nextDerivedFrom types.BlockSeal, err error)
-	NextDerived(derived eth.BlockID) (derivedFrom types.BlockSeal, nextDerived types.BlockSeal, err error)
-	PreviousDerivedFrom(derivedFrom eth.BlockID) (prevDerivedFrom types.BlockSeal, err error)
-	PreviousDerived(derived eth.BlockID) (prevDerived types.BlockSeal, err error)
-}
-
-var _ LocalDerivedFromStorage = (*fromda.DB)(nil)
-
-type CrossDerivedFromStorage interface {
-	LocalDerivedFromStorage
-	// This will start to differ with reorg support
+	// returns ErrConflict if the log does not match the canonical chain.
+	// returns ErrFuture if the log is out of reach.
+	// returns nil if the log is known and matches the canonical chain.
+	Contains(blockNum uint64, logIdx uint32, logHash common.Hash) (nextIndex entrydb.EntryIdx, err error)
 }
 
 var _ LogStorage = (*logs.DB)(nil)
 
-// ChainsDB is a database that stores logs and derived-from data for multiple chains.
-// it implements the LogStorage interface, as well as several DB interfaces needed by the cross package.
+type HeadsStorage interface {
+	Current() *heads.Heads
+	Apply(op heads.Operation) error
+}
+
+// ChainsDB is a database that stores logs and heads for multiple chains.
+// it implements the ChainsStorage interface.
 type ChainsDB struct {
-	// unsafe info: the sequence of block seals and events
-	logDBs locks.RWMap[eth.ChainID, LogStorage]
-
-	// cross-unsafe: how far we have processed the unsafe data.
-	// If present but set to a zeroed value the cross-unsafe will fallback to cross-safe.
-	crossUnsafe locks.RWMap[eth.ChainID, *locks.RWValue[types.BlockSeal]]
-
-	// local-safe: index of what we optimistically know about L2 blocks being derived from L1
-	localDBs locks.RWMap[eth.ChainID, LocalDerivedFromStorage]
-
-	// cross-safe: index of L2 blocks we know to only have cross-L2 valid dependencies
-	crossDBs locks.RWMap[eth.ChainID, CrossDerivedFromStorage]
-
-	// finalized: the L1 finality progress. This can be translated into what may be considered as finalized in L2.
-	// It is initially zeroed, and the L2 finality query will return
-	// an error until it has this L1 finality to work with.
-	finalizedL1 locks.RWValue[eth.L1BlockRef]
-
-	// depSet is the dependency set, used to determine what may be tracked,
-	// what is missing, and to provide it to DB users.
-	depSet depset.DependencySet
-
-	logger log.Logger
-
-	// emitter used to signal when the DB changes, for other modules to react to
-	emitter event.Emitter
+	logDBs           map[types.ChainID]LogStorage
+	heads            HeadsStorage
+	maintenanceReady chan struct{}
+	logger           log.Logger
 }
 
-var _ event.AttachEmitter = (*ChainsDB)(nil)
-
-func NewChainsDB(l log.Logger, depSet depset.DependencySet) *ChainsDB {
+func NewChainsDB(logDBs map[types.ChainID]LogStorage, heads HeadsStorage, l log.Logger) *ChainsDB {
 	return &ChainsDB{
-		logger: l,
-		depSet: depSet,
+		logDBs:           logDBs,
+		heads:            heads,
+		logger:           l,
+		maintenanceReady: make(chan struct{}, 1),
 	}
 }
 
-func (db *ChainsDB) AttachEmitter(em event.Emitter) {
-	db.emitter = em
-}
-
-func (db *ChainsDB) OnEvent(ev event.Event) bool {
-	switch x := ev.(type) {
-	case superevents.AnchorEvent:
-		db.maybeInitEventsDB(x.ChainID, x.Anchor)
-		db.maybeInitSafeDB(x.ChainID, x.Anchor)
-	case superevents.LocalDerivedEvent:
-		db.UpdateLocalSafe(x.ChainID, x.Derived.DerivedFrom, x.Derived.Derived)
-	case superevents.FinalizedL1RequestEvent:
-		db.onFinalizedL1(x.FinalizedL1)
-	default:
-		return false
+func (db *ChainsDB) AddLogDB(chain types.ChainID, logDB LogStorage) {
+	if db.logDBs[chain] != nil {
+		log.Warn("overwriting existing logDB for chain", "chain", chain)
 	}
-	return true
-}
-
-func (db *ChainsDB) AddLogDB(chainID eth.ChainID, logDB LogStorage) {
-	if db.logDBs.Has(chainID) {
-		db.logger.Warn("overwriting existing log DB for chain", "chain", chainID)
-	}
-
-	db.logDBs.Set(chainID, logDB)
-}
-
-func (db *ChainsDB) AddLocalDerivedFromDB(chainID eth.ChainID, dfDB LocalDerivedFromStorage) {
-	if db.localDBs.Has(chainID) {
-		db.logger.Warn("overwriting existing local derived-from DB for chain", "chain", chainID)
-	}
-
-	db.localDBs.Set(chainID, dfDB)
-}
-
-func (db *ChainsDB) AddCrossDerivedFromDB(chainID eth.ChainID, dfDB CrossDerivedFromStorage) {
-	if db.crossDBs.Has(chainID) {
-		db.logger.Warn("overwriting existing cross derived-from DB for chain", "chain", chainID)
-	}
-
-	db.crossDBs.Set(chainID, dfDB)
-}
-
-func (db *ChainsDB) AddCrossUnsafeTracker(chainID eth.ChainID) {
-	if db.crossUnsafe.Has(chainID) {
-		db.logger.Warn("overwriting existing cross-unsafe tracker for chain", "chain", chainID)
-	}
-	db.crossUnsafe.Set(chainID, &locks.RWValue[types.BlockSeal]{})
+	db.logDBs[chain] = logDB
 }
 
 // ResumeFromLastSealedBlock prepares the chains db to resume recording events after a restart.
 // It rewinds the database to the last block that is guaranteed to have been fully recorded to the database,
 // to ensure it can resume recording from the first log of the next block.
 func (db *ChainsDB) ResumeFromLastSealedBlock() error {
-	var result error
-	db.logDBs.Range(func(chain eth.ChainID, logStore LogStorage) bool {
+	for chain, logStore := range db.logDBs {
 		headNum, ok := logStore.LatestSealedBlockNum()
-		if !ok {
+		if ok {
 			// db must be empty, nothing to rewind to
 			db.logger.Info("Resuming, but found no DB contents", "chain", chain)
-			return true
+			continue
 		}
 		db.logger.Info("Resuming, starting from last sealed block", "head", headNum)
 		if err := logStore.Rewind(headNum); err != nil {
-			result = fmt.Errorf("failed to rewind chain %s to sealed block %d", chain, headNum)
-			return false
+			return fmt.Errorf("failed to rewind chain %s to sealed block %d", chain, headNum)
 		}
-		return true
-	})
-	return result
+	}
+	return nil
 }
 
-func (db *ChainsDB) DependencySet() depset.DependencySet {
-	return db.depSet
+// StartCrossHeadMaintenance starts a background process that maintains the cross-heads of the chains
+// for now it does not prevent multiple instances of this process from running
+func (db *ChainsDB) StartCrossHeadMaintenance(ctx context.Context) {
+	go func() {
+		db.logger.Info("cross-head maintenance loop started")
+		// run the maintenance loop every 1 seconds for now
+		ticker := time.NewTicker(time.Second * 1)
+		for {
+			select {
+			case <-ctx.Done():
+				db.logger.Warn("context cancelled, stopping maintenance loop")
+				return
+			case <-ticker.C:
+				db.logger.Debug("regular maintenance requested")
+				db.RequestMaintenance()
+			case <-db.maintenanceReady:
+				db.logger.Debug("running maintenance")
+				if err := db.updateAllHeads(); err != nil {
+					db.logger.Error("failed to update cross-heads", "err", err)
+				}
+			}
+		}
+	}()
+}
+
+// Check calls the underlying logDB to determine if the given log entry is safe with respect to the checker's criteria.
+func (db *ChainsDB) Check(chain types.ChainID, blockNum uint64, logIdx uint32, logHash common.Hash) (entrydb.EntryIdx, error) {
+	logDB, ok := db.logDBs[chain]
+	if !ok {
+		return 0, fmt.Errorf("%w: %v", ErrUnknownChain, chain)
+	}
+	return logDB.Contains(blockNum, logIdx, logHash)
+}
+
+// RequestMaintenance requests that the maintenance loop update the cross-heads
+// it does not block if maintenance is already scheduled
+func (db *ChainsDB) RequestMaintenance() {
+	select {
+	case db.maintenanceReady <- struct{}{}:
+		return
+	default:
+		return
+	}
+}
+
+// updateAllHeads updates the cross-heads of all safety levels
+// it is called by the maintenance loop
+func (db *ChainsDB) updateAllHeads() error {
+	// create three safety checkers, one for each safety level
+	unsafeChecker := NewSafetyChecker(Unsafe, db)
+	safeChecker := NewSafetyChecker(Safe, db)
+	finalizedChecker := NewSafetyChecker(Finalized, db)
+	for _, checker := range []SafetyChecker{
+		unsafeChecker,
+		safeChecker,
+		finalizedChecker} {
+		if err := db.UpdateCrossHeads(checker); err != nil {
+			return fmt.Errorf("failed to update cross-heads for safety level %v: %w", checker.Name(), err)
+		}
+	}
+	return nil
+}
+
+// UpdateCrossHeadsForChain updates the cross-head for a single chain.
+// the provided checker controls which heads are considered.
+func (db *ChainsDB) UpdateCrossHeadsForChain(chainID types.ChainID, checker SafetyChecker) error {
+	// start with the xsafe head of the chain
+	xHead := checker.CrossHeadForChain(chainID)
+	// advance as far as the local head
+	localHead := checker.LocalHeadForChain(chainID)
+	// get an iterator for the last checkpoint behind the x-head
+	iter, err := db.logDBs[chainID].IteratorStartingAt(xHead)
+	if err != nil {
+		return fmt.Errorf("failed to rewind cross-safe head for chain %v: %w", chainID, err)
+	}
+	// track if we updated the cross-head
+	updated := false
+	// advance the logDB through all executing messages we can
+	// this loop will break:
+	// - when we reach the local head
+	// - when we reach a message that is not safe
+	// - if an error occurs
+	for {
+		if err := iter.NextExecMsg(); err == io.EOF {
+			break
+		} else if err != nil {
+			return fmt.Errorf("failed to read next executing message for chain %v: %w", chainID, err)
+		}
+		// if we would exceed the local head, then abort
+		if iter.NextIndex() > localHead {
+			xHead = localHead // clip to local head
+			updated = localHead != xHead
+			break
+		}
+		exec := iter.ExecMessage()
+		if exec == nil {
+			panic("expected executing message after traversing to one without error")
+		}
+		// use the checker to determine if this message is safe
+		safe := checker.Check(
+			types.ChainIDFromUInt64(uint64(exec.Chain)),
+			exec.BlockNum,
+			exec.LogIdx,
+			exec.Hash)
+		if !safe {
+			break
+		}
+		// if all is well, prepare the x-head update to this point
+		xHead = iter.NextIndex()
+		updated = true
+	}
+	// have the checker create an update to the x-head in question, and apply that update
+	err = db.heads.Apply(checker.Update(chainID, xHead))
+	if err != nil {
+		return fmt.Errorf("failed to update cross-head for chain %v: %w", chainID, err)
+	}
+	// if any chain was updated, we can trigger a maintenance request
+	// this allows for the maintenance loop to handle cascading updates
+	// instead of waiting for the next scheduled update
+	if updated {
+		db.logger.Info("Promoting cross-head", "head", xHead, "safety-level", checker.SafetyLevel())
+		db.RequestMaintenance()
+	} else {
+		db.logger.Info("No cross-head update", "head", xHead, "safety-level", checker.SafetyLevel())
+	}
+	return nil
+}
+
+// UpdateCrossHeads updates the cross-heads of all chains
+// based on the provided SafetyChecker. The SafetyChecker is used to determine
+// the safety of each log entry in the database, and the cross-head associated with it.
+func (db *ChainsDB) UpdateCrossHeads(checker SafetyChecker) error {
+	for chainID := range db.logDBs {
+		err := db.UpdateCrossHeadsForChain(chainID, checker)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (db *ChainsDB) FindSealedBlock(chain types.ChainID, block eth.BlockID) (nextEntry entrydb.EntryIdx, err error) {
+	logDB, ok := db.logDBs[chain]
+	if !ok {
+		return 0, fmt.Errorf("%w: %v", ErrUnknownChain, chain)
+	}
+	return logDB.FindSealedBlock(block)
+}
+
+// LatestBlockNum returns the latest fully-sealed block number that has been recorded to the logs db
+// for the given chain. It does not contain safety guarantees.
+// The block number might not be available (empty database, or non-existent chain).
+func (db *ChainsDB) LatestBlockNum(chain types.ChainID) (num uint64, ok bool) {
+	logDB, knownChain := db.logDBs[chain]
+	if !knownChain {
+		return 0, false
+	}
+	return logDB.LatestSealedBlockNum()
+}
+
+func (db *ChainsDB) SealBlock(chain types.ChainID, parentHash common.Hash, block eth.BlockID, timestamp uint64) error {
+	logDB, ok := db.logDBs[chain]
+	if !ok {
+		return fmt.Errorf("%w: %v", ErrUnknownChain, chain)
+	}
+	return logDB.SealBlock(parentHash, block, timestamp)
+}
+
+func (db *ChainsDB) AddLog(chain types.ChainID, logHash common.Hash, parentBlock eth.BlockID, logIdx uint32, execMsg *types.ExecutingMessage) error {
+	logDB, ok := db.logDBs[chain]
+	if !ok {
+		return fmt.Errorf("%w: %v", ErrUnknownChain, chain)
+	}
+	return logDB.AddLog(logHash, parentBlock, logIdx, execMsg)
+}
+
+func (db *ChainsDB) Rewind(chain types.ChainID, headBlockNum uint64) error {
+	logDB, ok := db.logDBs[chain]
+	if !ok {
+		return fmt.Errorf("%w: %v", ErrUnknownChain, chain)
+	}
+	return logDB.Rewind(headBlockNum)
 }
 
 func (db *ChainsDB) Close() error {
 	var combined error
-	db.logDBs.Range(func(id eth.ChainID, logDB LogStorage) bool {
+	for id, logDB := range db.logDBs {
 		if err := logDB.Close(); err != nil {
 			combined = errors.Join(combined, fmt.Errorf("failed to close log db for chain %v: %w", id, err))
 		}
-		return true
-	})
+	}
 	return combined
 }
