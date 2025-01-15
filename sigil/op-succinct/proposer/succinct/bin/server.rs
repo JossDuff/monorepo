@@ -7,7 +7,8 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use log::{error, info};
+use uuid::Uuid;
+use log::{error, info, warn};
 use op_succinct_client_utils::{
     boot::{hash_rollup_config, BootInfoStruct},
     types::u32_to_u8,
@@ -15,26 +16,25 @@ use op_succinct_client_utils::{
 use op_succinct_host_utils::{
     fetcher::{CacheMode, OPSuccinctDataFetcher, RunContext},
     get_agg_proof_stdin, get_proof_stdin,
-    stats::ExecutionStats,
     witnessgen::{WitnessGenExecutor, WITNESSGEN_TIMEOUT},
     L2OutputOracle, ProgramType,
 };
 use op_succinct_proposer::{
     AggProofRequest, ContractConfig, ProofResponse, ProofStatus, SpanProofRequest,
-    ValidateConfigRequest, ValidateConfigResponse,
+    ValidateConfigRequest, ValidateConfigResponse, ProofStore
 };
 use sp1_sdk::{
     network::{
         proto::network::{ExecutionStatus, FulfillmentStatus},
         FulfillmentStrategy,
     },
-    utils, HashableKey, Prover, ProverClient, SP1Proof, SP1ProofMode, SP1ProofWithPublicValues,
-    SP1_CIRCUIT_VERSION,
+    utils, HashableKey, CudaProver, SP1Proof, SP1ProofWithPublicValues, 
+    SP1Stdin, SP1ProvingKey, ProverClient, Prover
 };
+use tokio::sync::RwLock;
 use std::{
-    env, fs,
-    str::FromStr,
-    time::{Duration, Instant},
+    env, str::FromStr, time::Duration, fmt::Display, sync::Arc, 
+    collections::HashMap
 };
 use tower_http::limit::RequestBodyLimitLayer;
 
@@ -43,17 +43,13 @@ pub const AGG_ELF: &[u8] = include_bytes!("../../../elf/aggregation-elf");
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Set up the SP1 SDK logger.
     utils::setup_logger();
-
-    // Enable logging.
-    env::set_var("RUST_LOG", "info");
 
     dotenv::dotenv().ok();
 
-    let prover = ProverClient::builder().cpu().build();
-    let (range_pk, range_vk) = prover.setup(RANGE_ELF);
-    let (agg_pk, agg_vk) = prover.setup(AGG_ELF);
+    let prover_client = Arc::new(ProverClient::builder().cuda().build());
+    let (range_pk, range_vk) = prover_client.setup(RANGE_ELF);
+    let (agg_pk, agg_vk) = prover_client.setup(AGG_ELF);
     let multi_block_vkey_u8 = u32_to_u8(range_vk.vk.hash_u32());
     let range_vkey_commitment = B256::from(multi_block_vkey_u8);
     let agg_vkey_hash = B256::from_str(&agg_vk.bytes32()).unwrap();
@@ -64,6 +60,8 @@ async fn main() -> Result<()> {
     // [`RollupConfig`] is released from `op-alloy`.
     let rollup_config_hash = hash_rollup_config(fetcher.rollup_config.as_ref().unwrap());
 
+    let proof_store = Arc::new(RwLock::new(HashMap::new()));
+
     // Initialize global hashes.
     let global_hashes = ContractConfig {
         agg_vkey_hash,
@@ -73,6 +71,8 @@ async fn main() -> Result<()> {
         range_pk,
         agg_vk,
         agg_pk,
+        proof_store,
+        prover_client
     };
 
     let app = Router::new()
@@ -130,7 +130,7 @@ async fn request_span_proof(
     State(state): State<ContractConfig>,
     Json(payload): Json<SpanProofRequest>,
 ) -> Result<(StatusCode, Json<ProofResponse>), AppError> {
-    info!("Received span proof request: {:?}", payload);
+    info!("Received span proof request");
     let fetcher = match OPSuccinctDataFetcher::new_with_rollup_config(RunContext::Docker).await {
         Ok(f) => f,
         Err(e) => {
@@ -189,26 +189,27 @@ async fn request_span_proof(
         }
     };
 
-    let client = ProverClient::builder().network().build();
-    let proof_id = client
-        .prove(&state.range_pk, &sp1_stdin)
-        .compressed()
-        .strategy(FulfillmentStrategy::Reserved)
-        .skip_simulation(true)
-        .cycle_limit(1_000_000_000_000)
-        .request_async()
-        .await
-        .map_err(|e| {
-            error!("Failed to request proof: {}", e);
-            AppError(anyhow::anyhow!("Failed to request proof: {}", e))
-        })?;
+    // TODO: do we need this client?
+    // let client = ProverClient::builder().network().build();
 
-    Ok((
-        StatusCode::OK,
-        Json(ProofResponse {
-            proof_id: proof_id.to_vec(),
-        }),
-    ))
+
+    let proof_id = send_proof(ProofType::Span, state.proof_store.clone(), state.prover_client.clone(), state.range_pk, sp1_stdin).await?;
+
+    // TODO: are these args needed?
+    // let proof_id = client
+    //     .prove(&state.range_pk, &sp1_stdin)
+    //     .compressed()
+    //     .strategy(FulfillmentStrategy::Reserved)
+    //     .skip_simulation(true)
+    //     .cycle_limit(1_000_000_000_000)
+    //     .request_async()
+    //     .await
+    //     .map_err(|e| {
+    //         error!("Failed to request proof: {}", e);
+    //         AppError(anyhow::anyhow!("Failed to request proof: {}", e))
+    //     })?;
+
+    Ok((StatusCode::OK, Json(ProofResponse { proof_id })))
 }
 
 /// Request an aggregation proof for a set of subproofs.
@@ -216,7 +217,7 @@ async fn request_agg_proof(
     State(state): State<ContractConfig>,
     Json(payload): Json<AggProofRequest>,
 ) -> Result<(StatusCode, Json<ProofResponse>), AppError> {
-    info!("Received agg proof request");
+    //info!("Received agg proof request");
     let mut proofs_with_pv: Vec<SP1ProofWithPublicValues> = payload
         .subproofs
         .iter()
@@ -233,38 +234,13 @@ async fn request_agg_proof(
         .map(|proof| proof.proof.clone())
         .collect();
 
-    let l1_head_bytes = match payload.head.strip_prefix("0x") {
-        Some(hex_str) => match hex::decode(hex_str) {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                error!("Failed to decode L1 head hex string: {}", e);
-                return Err(AppError(anyhow::anyhow!(
-                    "Failed to decode L1 head hex string: {}",
-                    e
-                )));
-            }
-        },
-        None => {
-            error!("Invalid L1 head format: missing 0x prefix");
-            return Err(AppError(anyhow::anyhow!(
-                "Invalid L1 head format: missing 0x prefix"
-            )));
-        }
-    };
-
-    let l1_head: [u8; 32] = match l1_head_bytes.clone().try_into() {
-        Ok(array) => array,
-        Err(_) => {
-            error!(
-                "Invalid L1 head length: expected 32 bytes, got {}",
-                l1_head_bytes.len()
-            );
-            return Err(AppError(anyhow::anyhow!(
-                "Invalid L1 head length: expected 32 bytes, got {}",
-                l1_head_bytes.len()
-            )));
-        }
-    };
+    let l1_head_bytes = hex::decode(
+        payload
+            .head
+            .strip_prefix("0x")
+            .expect("Invalid L1 head, no 0x prefix."),
+    )?;
+    let l1_head: [u8; 32] = l1_head_bytes.try_into().unwrap();
 
     let fetcher = match OPSuccinctDataFetcher::new_with_rollup_config(RunContext::Docker).await {
         Ok(f) => f,
@@ -285,9 +261,10 @@ async fn request_agg_proof(
         }
     };
 
-    let prover = ProverClient::builder().network().build();
+    // TODO: do we need this client?
+    //let prover = ProverClient::builder().network().build();
 
-    let stdin =
+    let sp1_stdin =
         match get_agg_proof_stdin(proofs, boot_infos, headers, &state.range_vk, l1_head.into()) {
             Ok(s) => s,
             Err(e) => {
@@ -299,29 +276,26 @@ async fn request_agg_proof(
             }
         };
 
-    let proof_id = match prover
-        .prove(&state.agg_pk, &stdin)
-        .groth16()
-        .strategy(FulfillmentStrategy::Reserved)
-        .request_async()
-        .await
-    {
-        Ok(id) => id,
-        Err(e) => {
-            error!("Failed to request proof: {}", e);
-            return Err(AppError(anyhow::anyhow!("Failed to request proof: {}", e)));
-        }
-    };
+    let proof_id = send_proof(ProofType::Agg, state.proof_store.clone(), state.prover_client.clone(), state.agg_pk, sp1_stdin).await?;
+    // TODO: are these args needed?
+    // let proof_id = match prover
+    //     .prove(&state.agg_pk, &stdin)
+    //     .groth16()
+    //     .strategy(FulfillmentStrategy::Reserved)
+    //     .request_async()
+    //     .await
+    // {
+    //     Ok(id) => id,
+    //     Err(e) => {
+    //         error!("Failed to request proof: {}", e);
+    //         return Err(AppError(anyhow::anyhow!("Failed to request proof: {}", e)));
+    //     }
+    // };
 
-    Ok((
-        StatusCode::OK,
-        Json(ProofResponse {
-            proof_id: proof_id.to_vec(),
-        }),
-    ))
+    Ok((StatusCode::OK, Json(ProofResponse { proof_id })))
 }
 
-/// Request a mock proof for a span of blocks.
+/// Request a proof for a span of blocks.
 async fn request_mock_span_proof(
     State(state): State<ContractConfig>,
     Json(payload): Json<SpanProofRequest>,
@@ -354,7 +328,6 @@ async fn request_mock_span_proof(
     // Start the server and native client with a timeout.
     // Note: Ideally, the server should call out to a separate process that executes the native
     // host, and return an ID that the client can poll on to check if the proof was submitted.
-    let start_time = Instant::now();
     let mut witnessgen_executor = WitnessGenExecutor::new(WITNESSGEN_TIMEOUT, RunContext::Docker);
     if let Err(e) = witnessgen_executor.spawn_witnessgen(&host_cli).await {
         error!("Failed to spawn witness generator: {}", e);
@@ -368,7 +341,6 @@ async fn request_mock_span_proof(
             e
         )));
     }
-    let witness_generation_time_sec = start_time.elapsed();
 
     let sp1_stdin = match get_proof_stdin(&host_cli) {
         Ok(stdin) => stdin,
@@ -378,41 +350,11 @@ async fn request_mock_span_proof(
         }
     };
 
-    let start_time = Instant::now();
-    let prover = ProverClient::builder().cpu().build();
-    let (pv, report) = prover.execute(RANGE_ELF, &sp1_stdin).run().unwrap();
-    let execution_duration = start_time.elapsed();
-
-    let block_data = fetcher
-        .get_l2_block_data_range(payload.start, payload.end)
-        .await?;
-
-    let stats = ExecutionStats::new(
-        &block_data,
-        &report,
-        witness_generation_time_sec.as_secs(),
-        execution_duration.as_secs(),
-    );
-
-    let l2_chain_id = fetcher.get_l2_chain_id().await?;
-    // Save the report to disk.
-    let report_dir = format!("execution-reports/{}", l2_chain_id);
-    if !std::path::Path::new(&report_dir).exists() {
-        fs::create_dir_all(&report_dir)?;
-    }
-
-    let report_path = format!("{}/{}-{}.json", report_dir, payload.start, payload.end);
-    // Write to CSV.
-    let mut csv_writer = csv::Writer::from_path(report_path)?;
-    csv_writer.serialize(&stats)?;
-    csv_writer.flush()?;
-
-    let proof = SP1ProofWithPublicValues::create_mock_proof(
-        &state.range_pk,
-        pv.clone(),
-        SP1ProofMode::Compressed,
-        SP1_CIRCUIT_VERSION,
-    );
+    let prover = ProverClient::builder().mock().build();
+    let proof = prover
+        .prove(&state.range_pk, &sp1_stdin)
+        .compressed()
+        .run()?;
 
     let proof_bytes = bincode::serialize(&proof).unwrap();
 
@@ -492,6 +434,7 @@ async fn request_mock_agg_proof(
             }
         };
 
+    // Simulate the mock proof. proof.bytes() returns an empty byte array for mock proofs.
     let proof = match prover
         .prove(&state.agg_pk, &stdin)
         .groth16()
@@ -517,92 +460,57 @@ async fn request_mock_agg_proof(
 
 /// Get the status of a proof.
 async fn get_proof_status(
+    State(state): State<ContractConfig>,
     Path(proof_id): Path<String>,
 ) -> Result<(StatusCode, Json<ProofStatus>), AppError> {
     info!("Received proof status request: {:?}", proof_id);
 
-    let client = ProverClient::builder().network().build();
+    //let client = ProverClient::builder().network().build();
 
-    let proof_id_bytes = hex::decode(proof_id)?;
+    let proof_id = hex::decode(proof_id)?;
 
-    // Time out this request if it takes too long.
-    let timeout = Duration::from_secs(10);
-    let (status, maybe_proof) = match tokio::time::timeout(
-        timeout,
-        client.get_proof_status(B256::from_slice(&proof_id_bytes)),
-    )
-    .await
-    {
-        Ok(Ok(result)) => result,
-        Ok(Err(_)) => {
-            return Ok((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ProofStatus {
-                    fulfillment_status: FulfillmentStatus::UnspecifiedFulfillmentStatus.into(),
-                    execution_status: ExecutionStatus::UnspecifiedExecutionStatus.into(),
-                    proof: vec![],
-                }),
-            ));
+    // request read-only copy of proof_store
+    let proof_store = state.proof_store.read().await;
+
+    let status: ProofStatus = match proof_store.get(&proof_id) {
+        Some(proof_status) => {
+            info!("proof with id {:?} found", proof_id);
+            ProofStatus {
+                fulfillment_status: proof_status.fulfillment_status,
+                execution_status: proof_status.execution_status,
+                // TODO: fix this clone
+                proof: proof_status.proof.clone(),
+            }
         }
-        Err(_) => {
-            return Ok((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ProofStatus {
-                    fulfillment_status: FulfillmentStatus::UnspecifiedFulfillmentStatus.into(),
-                    execution_status: ExecutionStatus::UnspecifiedExecutionStatus.into(),
-                    proof: vec![],
-                }),
-            ));
+        None => {
+            warn!("proof with id {:?} not found", proof_id);
+            ProofStatus {
+                fulfillment_status: 0,
+                execution_status: 0,
+                proof: vec![],
+            }
         }
     };
 
     let fulfillment_status = status.fulfillment_status;
     let execution_status = status.execution_status;
-    if fulfillment_status == FulfillmentStatus::Fulfilled as i32 {
-        let proof: SP1ProofWithPublicValues = maybe_proof.unwrap();
+    info!(
+        "execution status of job {:?}: {}",
+        proof_id, execution_status
+    );
 
-        match proof.proof {
-            SP1Proof::Compressed(_) => {
-                // If it's a compressed proof, we need to serialize the entire struct with bincode.
-                // Note: We're re-serializing the entire struct with bincode here, but this is fine
-                // because we're on localhost and the size of the struct is small.
-                let proof_bytes = bincode::serialize(&proof).unwrap();
-                return Ok((
-                    StatusCode::OK,
-                    Json(ProofStatus {
-                        fulfillment_status,
-                        execution_status,
-                        proof: proof_bytes,
-                    }),
-                ));
-            }
-            SP1Proof::Groth16(_) => {
-                // If it's a groth16 proof, we need to get the proof bytes that we put on-chain.
-                let proof_bytes = proof.bytes();
-                return Ok((
-                    StatusCode::OK,
-                    Json(ProofStatus {
-                        fulfillment_status,
-                        execution_status,
-                        proof: proof_bytes,
-                    }),
-                ));
-            }
-            SP1Proof::Plonk(_) => {
-                // If it's a plonk proof, we need to get the proof bytes that we put on-chain.
-                let proof_bytes = proof.bytes();
-                return Ok((
-                    StatusCode::OK,
-                    Json(ProofStatus {
-                        fulfillment_status,
-                        execution_status,
-                        proof: proof_bytes,
-                    }),
-                ));
-            }
-            _ => (),
-        }
-    } else if fulfillment_status == FulfillmentStatus::Unfulfillable as i32 {
+    // if fulfilled, return proof
+    if fulfillment_status == FulfillmentStatus::Fulfilled as i32 {
+        return Ok((
+            StatusCode::OK,
+            Json(ProofStatus {
+                fulfillment_status,
+                execution_status,
+                proof: status.proof,
+            }),
+        ));
+    // otherwise, return current status & no proof
+    } else { 
         return Ok((
             StatusCode::OK,
             Json(ProofStatus {
@@ -612,14 +520,145 @@ async fn get_proof_status(
             }),
         ));
     }
-    Ok((
-        StatusCode::OK,
-        Json(ProofStatus {
-            fulfillment_status,
-            execution_status,
-            proof: vec![],
-        }),
-    ))
+
+}
+
+// spawns a process that creates a proof locally
+// runs proof in a background thread.  Only needs to be async because of 
+// proof_store.write().await.  It isn't blocked by anything else
+async fn send_proof(
+    proof_type: ProofType,
+    proof_store: ProofStore,
+    prover_client: Arc<CudaProver>,
+    proving_key: SP1ProvingKey,
+    sp1_stdin: SP1Stdin,
+) -> Result<Vec<u8>, AppError> {
+
+    let proof_id = uuid_to_hex_bytes(Uuid::new_v4());
+    let proof_id_clone = proof_id.clone();
+
+    let initial_status = ProofStatus {
+        fulfillment_status: 2,
+        execution_status: 1,
+        proof: Vec::new()
+    };
+
+    proof_store.write().await.insert(proof_id.clone(), initial_status);
+
+    tokio::spawn(async move {
+        let start_time = tokio::time::Instant::now();
+        info!("computing {proof_type} proof with id {:?}", proof_id);
+
+        let proof_res = match proof_type {
+            ProofType::Span => {
+                prover_client.prove(&proving_key, &sp1_stdin).compressed().run()
+            }
+            ProofType::Agg => {
+                prover_client.prove(&proving_key, &sp1_stdin).groth16().run()
+            }
+        };
+
+
+        /*
+        #[repr(i32)]
+        pub enum ExecutionStatus {
+            UnspecifiedExecutionStatus = 0,
+            /// The request has not been executed.
+            Unexecuted = 1,
+            /// The request has been executed.
+            Executed = 2,
+            /// The request cannot be executed.
+            Unexecutable = 3,
+        }
+
+        #[repr(i32)]
+        pub enum FulfillmentStatus {
+            UnspecifiedFulfillmentStatus = 0,
+            /// The request has been requested.
+            Requested = 1,
+            /// The request has been assigned to a fulfiller.
+            Assigned = 2,
+            /// The request has been fulfilled.
+            Fulfilled = 3,
+            /// The request cannot be fulfilled.
+            Unfulfillable = 4,
+        }
+        * */
+
+        let proof_status = match proof_res {
+            // proof is done, can return it
+            Ok(proof) => {
+                match proof.proof {
+                    SP1Proof::Compressed(_) => {
+                        // If it's a compressed proof, we need to serialize the entire struct with bincode.
+                        // Note: We're re-serializing the entire struct with bincode here, but this is fine
+                        // because we're on localhost and the size of the struct is small.
+                        let proof_bytes = bincode::serialize(&proof).unwrap();
+                        ProofStatus {
+                            fulfillment_status: 3,
+                            execution_status: 2,
+                            proof: proof_bytes,
+                        }
+                    }
+                    SP1Proof::Groth16(_) => {
+                        // If it's a groth16 proof, we need to get the proof bytes that we put on-chain.
+                        let proof_bytes = proof.bytes();
+                        ProofStatus {
+                            fulfillment_status: 3,
+                            execution_status: 2,
+                            proof: proof_bytes,
+                        }
+                    }
+                    SP1Proof::Plonk(_) => {
+                        // If it's a plonk proof, we need to get the proof bytes that we put on-chain.
+                        let proof_bytes = proof.bytes();
+                        ProofStatus {
+                            fulfillment_status: 3,
+                            execution_status: 2,
+                            proof: proof_bytes,
+                        }
+                    }
+                    _ => {
+                        log::error!("unknown proof type: {proof:?}");
+                        return Err(AppError(anyhow::anyhow!("unknown proof type: {proof:?}")));
+                    }
+                }
+            }
+            Err(e) => {
+                log::error!("error proving {e}");
+                return Err(AppError(anyhow::anyhow!("error proving {e}")));
+            }
+        };
+
+        info!("proof completed. id {:?}", proof_id);
+        let minutes = start_time.elapsed().as_secs_f64() / 60.0;
+        info!("Time to compute {proof_type} proof: {} minutes", minutes);
+
+        // update proof store
+        proof_store.write().await.insert(proof_id, proof_status);
+
+        Ok(())
+    });
+
+    Ok(proof_id_clone)
+}
+
+pub enum ProofType {
+    Span,
+    Agg,
+}
+
+impl Display for ProofType {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+       match self {
+           ProofType::Span => write!(f, "span"),
+           ProofType::Agg => write!(f, "agg"),
+       }
+   }
+}
+
+fn uuid_to_hex_bytes(uuid: Uuid) -> Vec<u8> {
+    format!("0x{:016x}", uuid.as_u128() >> 64).into_bytes()
 }
 
 pub struct AppError(anyhow::Error);
