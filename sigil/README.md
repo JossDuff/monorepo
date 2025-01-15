@@ -45,6 +45,9 @@ openssl rand -hex 32 > jwt.txt
 
 ## genesis.json
 
+`op-geth` requires a `genesis.json` configuration file to run.  You can find it
+at `op-geth/genesis.json`.
+
 # /optimism
 
 original repo: <https://github.com/ethereum-optimism/optimism/>
@@ -75,9 +78,10 @@ generate a random 32 byte hex string:
 openssl rand -hex 32 > jwt.txt
 ```
 
-### TODO: rollup.json
+### rollup.json
 
-`op-node` requires a `rollup.json` configuration file.
+`op-node` requires a `rollup.json` configuration file to run.  You can find it at
+`optimism/rollup.json`.
 
 ## `op-batcher`
 
