@@ -97,3 +97,29 @@ openssl rand -hex 32 > jwt.txt
   --l1-eth-rpc=$L1_RPC_URL \
   --private-key=$GS_BATCHER_PRIVATE_KEY
 ```
+
+# Maintaining
+
+The repos in this folder were dragged in via `git subtree`, a less burdonsome
+alternative to git submodules.  See below for how to change versions of these
+dependencies.  All commands are run from the repository root `monorepo/`.
+
+Example: changing version of `optimism` to the release tag `v99.99.99`.
+
+```bash
+git fetch sigil/optimism
+
+git subtree merge -P sigil/optimism --squash tags/v99.99.99
+```
+
+### IMPORTANT MAINTAINING NOTES
+
+- The `--squash` IS VERY IMPORTANT.  Otherwise it will drag in the entire history
+of the optimism repo.
+
+- For git subtree commands the other dependencies are named similarly: prefixed by
+`sigil/`.  `op-geth` is `sigil/op-geth` and `op-succinct` is `sigil/op-succinct`
+
+- On the merge commit after doing the `subtree merge`, add the version and
+dependency that you changed for easier bookkeeping.  Also make sure to change
+the version in `monorepo/sigil/README.md`
