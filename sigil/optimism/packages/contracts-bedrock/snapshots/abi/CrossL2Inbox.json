@@ -26,6 +26,56 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "origin",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "blockNumber",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "logIndex",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "timestamp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "chainId",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct ICrossL2Inbox.Identifier",
+        "name": "_id",
+        "type": "tuple"
+      },
+      {
+        "internalType": "address",
+        "name": "_target",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes",
+        "name": "_message",
+        "type": "bytes"
+      }
+    ],
+    "name": "executeMessage",
+    "outputs": [],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "interopStart",
     "outputs": [
@@ -114,7 +164,7 @@
             "type": "uint256"
           }
         ],
-        "internalType": "struct Identifier",
+        "internalType": "struct ICrossL2Inbox.Identifier",
         "name": "_id",
         "type": "tuple"
       },
@@ -180,7 +230,7 @@
           }
         ],
         "indexed": false,
-        "internalType": "struct Identifier",
+        "internalType": "struct ICrossL2Inbox.Identifier",
         "name": "id",
         "type": "tuple"
       }
@@ -191,6 +241,16 @@
   {
     "inputs": [],
     "name": "InteropStartAlreadySet",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidChainId",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidTimestamp",
     "type": "error"
   },
   {
@@ -211,6 +271,11 @@
   {
     "inputs": [],
     "name": "ReentrantCall",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "TargetCallFailed",
     "type": "error"
   }
 ]

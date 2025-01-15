@@ -5,8 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum-optimism/optimism/op-e2e/config"
-
 	actionsHelpers "github.com/ethereum-optimism/optimism/op-e2e/actions/helpers"
 	upgradesHelpers "github.com/ethereum-optimism/optimism/op-e2e/actions/upgrades/helpers"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -25,27 +23,31 @@ import (
 
 // TestProposerBatchType run each proposer-related test case in singular batch mode and span batch mode.
 func TestProposerBatchType(t *testing.T) {
-	t.Run("SingularBatch/Standard", func(t *testing.T) {
-		runProposerTest(t, nil, config.AllocTypeStandard)
-	})
-	t.Run("SingularBatch/L2OO", func(t *testing.T) {
-		runProposerTest(t, nil, config.AllocTypeL2OO)
-	})
-	t.Run("SpanBatch/Standard", func(t *testing.T) {
-		deltaTimeOffset := hexutil.Uint64(0)
-		runProposerTest(t, &deltaTimeOffset, config.AllocTypeStandard)
-	})
-	t.Run("SpanBatch/L2OO", func(t *testing.T) {
-		deltaTimeOffset := hexutil.Uint64(0)
-		runProposerTest(t, &deltaTimeOffset, config.AllocTypeL2OO)
-	})
+	tests := []struct {
+		name string
+		f    func(gt *testing.T, deltaTimeOffset *hexutil.Uint64)
+	}{
+		{"RunProposerTest", RunProposerTest},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name+"_SingularBatch", func(t *testing.T) {
+			test.f(t, nil)
+		})
+	}
+
+	deltaTimeOffset := hexutil.Uint64(0)
+	for _, test := range tests {
+		test := test
+		t.Run(test.name+"_SpanBatch", func(t *testing.T) {
+			test.f(t, &deltaTimeOffset)
+		})
+	}
 }
 
-func runProposerTest(gt *testing.T, deltaTimeOffset *hexutil.Uint64, allocType config.AllocType) {
+func RunProposerTest(gt *testing.T, deltaTimeOffset *hexutil.Uint64) {
 	t := actionsHelpers.NewDefaultTesting(gt)
-	params := actionsHelpers.DefaultRollupTestParams()
-	params.AllocType = allocType
-	dp := e2eutils.MakeDeployParams(t, params)
+	dp := e2eutils.MakeDeployParams(t, actionsHelpers.DefaultRollupTestParams)
 	upgradesHelpers.ApplyDeltaTimeOffset(dp, deltaTimeOffset)
 	sd := e2eutils.Setup(t, dp, actionsHelpers.DefaultAlloc)
 	log := testlog.Logger(t, log.LevelDebug)
@@ -56,7 +58,7 @@ func runProposerTest(gt *testing.T, deltaTimeOffset *hexutil.Uint64, allocType c
 		rollupSeqCl, miner.EthClient(), seqEngine.EthClient(), seqEngine.EngineClient(t, sd.RollupCfg))
 
 	var proposer *actionsHelpers.L2Proposer
-	if allocType.UsesProofs() {
+	if e2eutils.UseFaultProofs() {
 		optimismPortal2Contract, err := bindingspreview.NewOptimismPortal2(sd.DeploymentsL1.OptimismPortalProxy, miner.EthClient())
 		require.NoError(t, err)
 		respectedGameType, err := optimismPortal2Contract.RespectedGameType(&bind.CallOpts{})
@@ -68,7 +70,6 @@ func runProposerTest(gt *testing.T, deltaTimeOffset *hexutil.Uint64, allocType c
 			DisputeGameType:        respectedGameType,
 			ProposerKey:            dp.Secrets.Proposer,
 			AllowNonFinalized:      true,
-			AllocType:              allocType,
 		}, miner.EthClient(), rollupSeqCl)
 	} else {
 		proposer = actionsHelpers.NewL2Proposer(t, log, &actionsHelpers.ProposerCfg{
@@ -76,7 +77,6 @@ func runProposerTest(gt *testing.T, deltaTimeOffset *hexutil.Uint64, allocType c
 			ProposerKey:           dp.Secrets.Proposer,
 			ProposalRetryInterval: 3 * time.Second,
 			AllowNonFinalized:     false,
-			AllocType:             allocType,
 		}, miner.EthClient(), rollupSeqCl)
 	}
 
@@ -118,7 +118,7 @@ func runProposerTest(gt *testing.T, deltaTimeOffset *hexutil.Uint64, allocType c
 	}
 
 	// check that L1 stored the expected output root
-	if allocType.UsesProofs() {
+	if e2eutils.UseFaultProofs() {
 		optimismPortal2Contract, err := bindingspreview.NewOptimismPortal2(sd.DeploymentsL1.OptimismPortalProxy, miner.EthClient())
 		require.NoError(t, err)
 		respectedGameType, err := optimismPortal2Contract.RespectedGameType(&bind.CallOpts{})

@@ -6,11 +6,10 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/ethereum-optimism/optimism/op-program/chainconfig"
 	"github.com/ethereum-optimism/optimism/op-program/verify"
 	"github.com/ethereum/go-ethereum/common"
 )
-
-const opMainnetChainID = 10
 
 func main() {
 	var l1RpcUrl string
@@ -45,7 +44,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	runner, err := verify.NewRunner(l1RpcUrl, l1RpcKind, l1BeaconUrl, l2RpcUrl, dataDir, "op-mainnet", opMainnetChainID, false)
+	runner, err := verify.NewRunner(l1RpcUrl, l1RpcKind, l1BeaconUrl, l2RpcUrl, dataDir, "op-mainnet", chainconfig.OPMainnetChainConfig)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to create runner: %v\n", err.Error())
 		os.Exit(1)

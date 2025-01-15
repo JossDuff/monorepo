@@ -2,12 +2,10 @@ package fjord
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	op_e2e "github.com/ethereum-optimism/optimism/op-e2e"
 
-	"github.com/ethereum-optimism/optimism/op-e2e/e2eutils/wait"
 	"github.com/ethereum-optimism/optimism/op-e2e/system/e2esys"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -25,37 +23,47 @@ func TestCheckFjordScript(t *testing.T) {
 	op_e2e.InitParallel(t)
 	genesisActivation := hexutil.Uint64(0)
 	tests := []struct {
-		fjord bool
+		name            string
+		fjordActivation *hexutil.Uint64
+		expectErr       bool
 	}{
-		{fjord: true},
-		{fjord: false},
+		{
+			name:            "fjord_activated",
+			fjordActivation: &genesisActivation,
+			expectErr:       false,
+		},
+		{
+			name:            "fjord_unactivated",
+			fjordActivation: nil,
+			expectErr:       true,
+		},
 	}
 
 	for _, tt := range tests {
-		tt := tt
-		t.Run(fmt.Sprintf("fjord=%t", tt.fjord), func(t *testing.T) {
-			t.Parallel()
+		t.Run(tt.name, func(t *testing.T) {
+			op_e2e.InitParallel(t)
 
 			log := testlog.Logger(t, log.LevelInfo)
-			cfg := e2esys.EcotoneSystemConfig(t, &genesisActivation)
-			if tt.fjord {
-				cfg.DeployConfig.L2GenesisFjordTimeOffset = ptr(hexutil.Uint64(cfg.DeployConfig.L2BlockTime))
-			} else {
-				cfg.DeployConfig.L2GenesisFjordTimeOffset = nil
-			}
+
+			cfg := e2esys.DefaultSystemConfig(t)
+			cfg.DeployConfig.L1CancunTimeOffset = &genesisActivation
+			cfg.DeployConfig.L2GenesisRegolithTimeOffset = &genesisActivation
+			cfg.DeployConfig.L2GenesisCanyonTimeOffset = &genesisActivation
+			cfg.DeployConfig.L2GenesisDeltaTimeOffset = &genesisActivation
+			cfg.DeployConfig.L2GenesisEcotoneTimeOffset = &genesisActivation
+
+			cfg.DeployConfig.L2GenesisFjordTimeOffset = tt.fjordActivation
 
 			sys, err := cfg.Start(t)
 			require.NoError(t, err, "Error starting up system")
 
-			require.NoError(t, wait.ForNextBlock(context.Background(), sys.NodeClient(e2esys.RoleSeq)))
-
 			checkFjordConfig := &fjordChecks.CheckFjordConfig{
 				Log:  log,
-				L2:   sys.NodeClient(e2esys.RoleSeq),
+				L2:   sys.NodeClient("sequencer"),
 				Key:  sys.Cfg.Secrets.Alice,
 				Addr: sys.Cfg.Secrets.Addresses().Alice,
 			}
-			if !tt.fjord {
+			if tt.expectErr {
 				err = fjordChecks.CheckRIP7212(context.Background(), checkFjordConfig)
 				require.Error(t, err, "expected error for CheckRIP7212")
 				err = fjordChecks.CheckGasPriceOracle(context.Background(), checkFjordConfig)
@@ -75,5 +83,3 @@ func TestCheckFjordScript(t *testing.T) {
 		})
 	}
 }
-
-func ptr[T any](t T) *T { return &t }

@@ -9,7 +9,7 @@ import (
 
 type ThreadedStackTracker interface {
 	exec.TraceableStackTracker
-	DropThread(threadId Word)
+	DropThread(threadId uint32)
 }
 
 type NoopThreadedStackTracker struct {
@@ -18,12 +18,12 @@ type NoopThreadedStackTracker struct {
 
 var _ ThreadedStackTracker = (*ThreadedStackTrackerImpl)(nil)
 
-func (n *NoopThreadedStackTracker) DropThread(threadId Word) {}
+func (n *NoopThreadedStackTracker) DropThread(threadId uint32) {}
 
 type ThreadedStackTrackerImpl struct {
 	meta               mipsevm.Metadata
 	state              *State
-	trackersByThreadId map[Word]exec.TraceableStackTracker
+	trackersByThreadId map[uint32]exec.TraceableStackTracker
 }
 
 var _ ThreadedStackTracker = (*ThreadedStackTrackerImpl)(nil)
@@ -36,11 +36,11 @@ func NewThreadedStackTracker(state *State, meta mipsevm.Metadata) (*ThreadedStac
 	return &ThreadedStackTrackerImpl{
 		state:              state,
 		meta:               meta,
-		trackersByThreadId: make(map[Word]exec.TraceableStackTracker),
+		trackersByThreadId: make(map[uint32]exec.TraceableStackTracker),
 	}, nil
 }
 
-func (t *ThreadedStackTrackerImpl) PushStack(caller Word, target Word) {
+func (t *ThreadedStackTrackerImpl) PushStack(caller uint32, target uint32) {
 	t.getCurrentTracker().PushStack(caller, target)
 }
 
@@ -62,6 +62,6 @@ func (t *ThreadedStackTrackerImpl) getCurrentTracker() exec.TraceableStackTracke
 	return tracker
 }
 
-func (t *ThreadedStackTrackerImpl) DropThread(threadId Word) {
+func (t *ThreadedStackTrackerImpl) DropThread(threadId uint32) {
 	delete(t.trackersByThreadId, threadId)
 }

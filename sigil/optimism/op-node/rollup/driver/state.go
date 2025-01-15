@@ -307,10 +307,6 @@ type SyncDeriver struct {
 	Ctx context.Context
 
 	Drain func() error
-
-	// When in interop, and managed by an op-supervisor,
-	// the node performs a reset based on the instructions of the op-supervisor.
-	ManagedMode bool
 }
 
 func (s *SyncDeriver) AttachEmitter(em event.Emitter) {
@@ -390,15 +386,6 @@ func (s *SyncDeriver) onEngineConfirmedReset(x engine.EngineResetConfirmedEvent)
 }
 
 func (s *SyncDeriver) onResetEvent(x rollup.ResetEvent) {
-	if s.ManagedMode {
-		if errors.Is(x.Err, derive.ErrEngineResetReq) {
-			s.Log.Warn("Managed Mode is enabled, but engine reset is required", "err", x.Err)
-			s.Emitter.Emit(engine.ResetEngineRequestEvent{})
-		} else {
-			s.Log.Warn("Encountered reset, waiting for op-supervisor to recover", "err", x.Err)
-		}
-		return
-	}
 	// If the system corrupts, e.g. due to a reorg, simply reset it
 	s.Log.Warn("Deriver system is resetting", "err", x.Err)
 	s.Emitter.Emit(StepReqEvent{})
@@ -457,7 +444,7 @@ func (s *SyncDeriver) SyncStep() {
 
 	// If interop is configured, we have to run the engine events,
 	// to ensure cross-L2 safety is continuously verified against the interop-backend.
-	if s.Config.InteropTime != nil && !s.ManagedMode {
+	if s.Config.InteropTime != nil {
 		s.Emitter.Emit(engine.CrossUpdateRequestEvent{})
 	}
 }
@@ -494,10 +481,6 @@ func (s *Driver) SequencerActive(ctx context.Context) (bool, error) {
 
 func (s *Driver) OverrideLeader(ctx context.Context) error {
 	return s.sequencer.OverrideLeader(ctx)
-}
-
-func (s *Driver) ConductorEnabled(ctx context.Context) (bool, error) {
-	return s.sequencer.ConductorEnabled(ctx), nil
 }
 
 // SyncStatus blocks the driver event loop and captures the syncing status.

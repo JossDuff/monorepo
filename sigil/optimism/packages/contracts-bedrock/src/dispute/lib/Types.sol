@@ -1,20 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.15;
 
-// Libraries
-import {
-    Position,
-    Hash,
-    GameType,
-    VMStatus,
-    Timestamp,
-    Duration,
-    Clock,
-    GameId,
-    Claim,
-    LibGameId,
-    LibClock
-} from "src/dispute/lib/LibUDT.sol";
+import "src/dispute/lib/LibUDT.sol";
 
 /// @notice The current status of the dispute game.
 enum GameStatus {
@@ -24,17 +11,6 @@ enum GameStatus {
     CHALLENGER_WINS,
     // The game has concluded, and the `rootClaim` could not be contested.
     DEFENDER_WINS
-}
-
-/// @notice The game's bond distribution type. Games are expected to start in the `UNDECIDED`
-///         state, and then choose either `NORMAL` or `REFUND`.
-enum BondDistributionMode {
-    // Bond distribution strategy has not been chosen.
-    UNDECIDED,
-    // Bonds should be distributed as normal.
-    NORMAL,
-    // Bonds should be refunded to claimants.
-    REFUND
 }
 
 /// @notice Represents an L2 output root and the L2 block number at which it was generated.

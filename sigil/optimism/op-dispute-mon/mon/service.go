@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"sync/atomic"
-	"time"
 
 	"github.com/ethereum-optimism/optimism/op-dispute-mon/mon/bonds"
 	"github.com/ethereum-optimism/optimism/op-dispute-mon/mon/types"
-	rpcclient "github.com/ethereum-optimism/optimism/op-service/client"
-	"github.com/ethereum-optimism/optimism/op-service/eth"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/log"
 
 	"github.com/ethereum-optimism/optimism/op-dispute-mon/config"
@@ -47,9 +47,7 @@ type Service struct {
 	withdrawals  *WithdrawalMonitor
 	rollupClient *sources.RollupClient
 
-	l1RPC    rpcclient.RPC
-	l1Client *sources.L1Client
-	l1Caller *batching.MultiCaller
+	l1Client *ethclient.Client
 
 	pprofService *oppprof.Service
 	metricsSrv   *httputil.HTTPServer
@@ -122,13 +120,12 @@ func (s *Service) initWithdrawalMonitor() {
 }
 
 func (s *Service) initGameCallerCreator() {
-	s.game = extract.NewGameCallerCreator(s.metrics, s.l1Caller)
+	s.game = extract.NewGameCallerCreator(s.metrics, batching.NewMultiCaller(s.l1Client.Client(), batching.DefaultBatchSize))
 }
 
 func (s *Service) initExtractor(cfg *config.Config) {
 	s.extractor = extract.NewExtractor(
 		s.logger,
-		s.cl,
 		s.game.CreateContract,
 		s.factoryContract.GetGamesAtOrAfter,
 		cfg.IgnoredGames,
@@ -161,19 +158,9 @@ func (s *Service) initOutputRollupClient(ctx context.Context, cfg *config.Config
 }
 
 func (s *Service) initL1Client(ctx context.Context, cfg *config.Config) error {
-	l1RPC, err := dial.DialRPCClientWithTimeout(ctx, dial.DefaultDialTimeout, s.logger, cfg.L1EthRpc)
+	l1Client, err := dial.DialEthClientWithTimeout(ctx, dial.DefaultDialTimeout, s.logger, cfg.L1EthRpc)
 	if err != nil {
 		return fmt.Errorf("failed to dial L1: %w", err)
-	}
-	s.l1RPC = rpcclient.NewBaseRPCClient(l1RPC, rpcclient.WithCallTimeout(30*time.Second))
-	s.l1Caller = batching.NewMultiCaller(s.l1RPC, batching.DefaultBatchSize)
-	// The RPC is trusted because the majority of data comes from contract calls which are not verified even when the
-	// RPC is untrusted and also avoids needing to update op-dispute-mon for L1 hard forks that change the header.
-	// Note that receipts are never fetched so the RPCKind has no actual effect.
-	clCfg := sources.L1ClientSimpleConfig(true, sources.RPCKindAny, 100)
-	l1Client, err := sources.NewL1Client(s.l1RPC, s.logger, s.metrics, clCfg)
-	if err != nil {
-		return fmt.Errorf("failed to init l1 client: %w", err)
 	}
 	s.l1Client = l1Client
 	return nil
@@ -215,26 +202,38 @@ func (s *Service) initMetricsServer(cfg *opmetrics.CLIConfig) error {
 }
 
 func (s *Service) initFactoryContract(cfg *config.Config) error {
-	factoryContract := contracts.NewDisputeGameFactoryContract(s.metrics, cfg.GameFactoryAddress, s.l1Caller)
+	factoryContract := contracts.NewDisputeGameFactoryContract(s.metrics, cfg.GameFactoryAddress,
+		batching.NewMultiCaller(s.l1Client.Client(), batching.DefaultBatchSize))
 	s.factoryContract = factoryContract
 	return nil
 }
 
 func (s *Service) initMonitor(ctx context.Context, cfg *config.Config) {
-	headBlockFetcher := func(ctx context.Context) (eth.L1BlockRef, error) {
-		return s.l1Client.L1BlockRefByLabel(ctx, "latest")
+	blockHashFetcher := func(ctx context.Context, blockNumber *big.Int) (common.Hash, error) {
+		block, err := s.l1Client.BlockByNumber(ctx, blockNumber)
+		if err != nil {
+			return common.Hash{}, fmt.Errorf("failed to fetch block by number: %w", err)
+		}
+		return block.Hash(), nil
 	}
 	l2ChallengesMonitor := NewL2ChallengesMonitor(s.logger, s.metrics)
-	updateTimeMonitor := NewUpdateTimeMonitor(s.cl, s.metrics)
-	s.monitor = newGameMonitor(ctx, s.logger, s.cl, s.metrics, cfg.MonitorInterval, cfg.GameWindow, headBlockFetcher,
-		s.extractor.Extract,
+	s.monitor = newGameMonitor(
+		ctx,
+		s.logger,
+		s.cl,
+		s.metrics,
+		cfg.MonitorInterval,
+		cfg.GameWindow,
 		s.forecast.Forecast,
 		s.bonds.CheckBonds,
 		s.resolutions.CheckResolutions,
 		s.claims.CheckClaims,
 		s.withdrawals.CheckWithdrawals,
 		l2ChallengesMonitor.CheckL2Challenges,
-		updateTimeMonitor.CheckUpdateTimes)
+		s.extractor.Extract,
+		s.l1Client.BlockNumber,
+		blockHashFetcher,
+	)
 }
 
 func (s *Service) Start(ctx context.Context) error {

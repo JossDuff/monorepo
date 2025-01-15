@@ -1,7 +1,6 @@
 package l2
 
 import (
-	interopTypes "github.com/ethereum-optimism/optimism/op-program/client/interop/types"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -36,54 +35,42 @@ func NewCachingOracle(oracle Oracle) *CachingOracle {
 	}
 }
 
-func (o *CachingOracle) NodeByHash(nodeHash common.Hash, chainID uint64) []byte {
+func (o *CachingOracle) NodeByHash(nodeHash common.Hash) []byte {
 	node, ok := o.nodes.Get(nodeHash)
 	if ok {
 		return node
 	}
-	node = o.oracle.NodeByHash(nodeHash, chainID)
+	node = o.oracle.NodeByHash(nodeHash)
 	o.nodes.Add(nodeHash, node)
 	return node
 }
 
-func (o *CachingOracle) CodeByHash(codeHash common.Hash, chainID uint64) []byte {
+func (o *CachingOracle) CodeByHash(codeHash common.Hash) []byte {
 	code, ok := o.codes.Get(codeHash)
 	if ok {
 		return code
 	}
-	code = o.oracle.CodeByHash(codeHash, chainID)
+	code = o.oracle.CodeByHash(codeHash)
 	o.codes.Add(codeHash, code)
 	return code
 }
 
-func (o *CachingOracle) BlockByHash(blockHash common.Hash, chainID uint64) *types.Block {
+func (o *CachingOracle) BlockByHash(blockHash common.Hash) *types.Block {
 	block, ok := o.blocks.Get(blockHash)
 	if ok {
 		return block
 	}
-	block = o.oracle.BlockByHash(blockHash, chainID)
+	block = o.oracle.BlockByHash(blockHash)
 	o.blocks.Add(blockHash, block)
 	return block
 }
 
-func (o *CachingOracle) OutputByRoot(root common.Hash, chainID uint64) eth.Output {
+func (o *CachingOracle) OutputByRoot(root common.Hash) eth.Output {
 	output, ok := o.outputs.Get(root)
 	if ok {
 		return output
 	}
-	output = o.oracle.OutputByRoot(root, chainID)
+	output = o.oracle.OutputByRoot(root)
 	o.outputs.Add(root, output)
 	return output
-}
-
-func (o *CachingOracle) BlockDataByHash(agreedBlockHash, blockHash common.Hash, chainID uint64) *types.Block {
-	// Always request from the oracle even on cache hit. as we want the effects of the host oracle hinting
-	block := o.oracle.BlockDataByHash(agreedBlockHash, blockHash, chainID)
-	o.blocks.Add(blockHash, block)
-	return block
-}
-
-func (o *CachingOracle) TransitionStateByRoot(root common.Hash) *interopTypes.TransitionState {
-	// Don't bother caching as this is only requested once as part of the bootstrap process
-	return o.oracle.TransitionStateByRoot(root)
 }

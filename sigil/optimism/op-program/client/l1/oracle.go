@@ -59,7 +59,7 @@ func (p *PreimageOracle) headerByBlockHash(blockHash common.Hash) *types.Header 
 }
 
 func (p *PreimageOracle) HeaderByBlockHash(blockHash common.Hash) eth.BlockInfo {
-	return eth.HeaderBlockInfoTrusted(blockHash, p.headerByBlockHash(blockHash))
+	return eth.HeaderBlockInfo(p.headerByBlockHash(blockHash))
 }
 
 func (p *PreimageOracle) TransactionsByBlockHash(blockHash common.Hash) (eth.BlockInfo, types.Transactions) {
@@ -75,7 +75,7 @@ func (p *PreimageOracle) TransactionsByBlockHash(blockHash common.Hash) (eth.Blo
 		panic(fmt.Errorf("failed to decode list of txs: %w", err))
 	}
 
-	return eth.HeaderBlockInfoTrusted(blockHash, header), txs
+	return eth.HeaderBlockInfo(header), txs
 }
 
 func (p *PreimageOracle) ReceiptsByBlockHash(blockHash common.Hash) (eth.BlockInfo, types.Receipts) {

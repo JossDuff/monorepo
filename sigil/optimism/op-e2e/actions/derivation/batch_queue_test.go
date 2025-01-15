@@ -3,8 +3,6 @@ package derivation
 import (
 	"testing"
 
-	"github.com/ethereum-optimism/optimism/op-e2e/config"
-
 	altda "github.com/ethereum-optimism/optimism/op-alt-da"
 	batcherFlags "github.com/ethereum-optimism/optimism/op-batcher/flags"
 	"github.com/ethereum-optimism/optimism/op-e2e/actions/helpers"
@@ -31,7 +29,6 @@ func TestDeriveChainFromNearL1Genesis(gt *testing.T) {
 		SequencerWindowSize: 24,
 		ChannelTimeout:      20,
 		L1BlockTime:         12,
-		AllocType:           config.AllocTypeStandard,
 	}
 	dp := e2eutils.MakeDeployParams(t, p)
 	// do not activate Delta hardfork for verifier
@@ -95,7 +92,7 @@ func TestDeriveChainFromNearL1Genesis(gt *testing.T) {
 	l2Cl, err := sources.NewEngineClient(seqEngine.RPCClient(), logger, nil, sources.EngineClientDefaultConfig(sd.RollupCfg))
 	require.NoError(gt, err)
 	verifier := helpers.NewL2Verifier(t, logger, miner.L1Client(t, sd.RollupCfg), miner.BlobStore(), altda.Disabled,
-		l2Cl, sequencer.RollupCfg, &sync.Config{}, safedb.Disabled)
+		l2Cl, sequencer.RollupCfg, &sync.Config{}, safedb.Disabled, nil)
 	verifier.ActL2PipelineFull(t) // Should not get stuck in a reset loop forever
 	require.EqualValues(gt, l2BlockNum, seqEngine.L2Chain().CurrentSafeBlock().Number.Uint64())
 	require.EqualValues(gt, l2BlockNum, seqEngine.L2Chain().CurrentFinalBlock().Number.Uint64())

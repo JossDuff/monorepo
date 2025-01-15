@@ -1,7 +1,6 @@
 package testutil
 
 import (
-	"github.com/ethereum-optimism/optimism/cannon/mipsevm/arch"
 	"github.com/ethereum-optimism/optimism/cannon/mipsevm/multithreaded"
 	"github.com/ethereum-optimism/optimism/cannon/mipsevm/testutil"
 )
@@ -15,13 +14,13 @@ func RandomThread(randSeed int64) *multithreaded.ThreadState {
 	thread.Registers = *r.RandRegisters()
 	thread.Cpu.PC = pc
 	thread.Cpu.NextPC = pc + 4
-	thread.Cpu.HI = r.Word()
-	thread.Cpu.LO = r.Word()
+	thread.Cpu.HI = r.Uint32()
+	thread.Cpu.LO = r.Uint32()
 
 	return thread
 }
 
-func InitializeSingleThread(randSeed int, state *multithreaded.State, traverseRight bool, opts ...testutil.StateOption) {
+func InitializeSingleThread(randSeed int, state *multithreaded.State, traverseRight bool) {
 	singleThread := RandomThread(int64(randSeed))
 
 	state.NextThreadId = singleThread.ThreadId + 1
@@ -33,17 +32,12 @@ func InitializeSingleThread(randSeed int, state *multithreaded.State, traverseRi
 		state.RightThreadStack = []*multithreaded.ThreadState{}
 		state.LeftThreadStack = []*multithreaded.ThreadState{singleThread}
 	}
-
-	mutator := NewStateMutatorMultiThreaded(state)
-	for _, opt := range opts {
-		opt(mutator)
-	}
 }
 
 func SetupThreads(randomSeed int64, state *multithreaded.State, traverseRight bool, activeStackSize, otherStackSize int) {
 	var activeStack, otherStack []*multithreaded.ThreadState
 
-	tid := arch.Word(0)
+	tid := uint32(0)
 	for i := 0; i < activeStackSize; i++ {
 		thread := RandomThread(randomSeed + int64(i))
 		thread.ThreadId = tid
@@ -135,13 +129,13 @@ func FindNextThreadFiltered(state *multithreaded.State, filter ThreadFilter) *mu
 	return nil
 }
 
-func FindNextThreadExcluding(state *multithreaded.State, threadId arch.Word) *multithreaded.ThreadState {
+func FindNextThreadExcluding(state *multithreaded.State, threadId uint32) *multithreaded.ThreadState {
 	return FindNextThreadFiltered(state, func(t *multithreaded.ThreadState) bool {
 		return t.ThreadId != threadId
 	})
 }
 
-func FindThread(state *multithreaded.State, threadId arch.Word) *multithreaded.ThreadState {
+func FindThread(state *multithreaded.State, threadId uint32) *multithreaded.ThreadState {
 	for _, t := range GetAllThreads(state) {
 		if t.ThreadId == threadId {
 			return t
