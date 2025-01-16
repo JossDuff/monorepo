@@ -3,7 +3,7 @@ members = ["utils/*", "programs/*", "scripts/*", "proposer/succinct"]
 resolver = "2"
 
 [workspace.package]
-license = "LicenseRef-VPL WITH AGPL-3.0-only"
+license = "MIT"
 edition = "2021"
 authors = ["ratankaliani", "zachobront"]
 homepage = "https://succinctlabs.github.io/op-succinct/"
