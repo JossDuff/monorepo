@@ -51,7 +51,7 @@ at `op-geth/genesis.json`.
 # /optimism
 
 original repo: <https://github.com/ethereum-optimism/optimism/>
-forked version tag: `v1.9.3`
+forked version tag: `op-node/v1.10.2`
 
 Contains the op-stack chain `op-batcher` and `op-node` ("rollup node").
 See `optimism/example.env` for required env vars.
