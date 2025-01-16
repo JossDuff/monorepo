@@ -116,9 +116,11 @@ func ReadGenesis(db ethdb.Database) (*Genesis, error) {
 	genesis.BaseFee = genesisHeader.BaseFee
 	genesis.ExcessBlobGas = genesisHeader.ExcessBlobGas
 	genesis.BlobGasUsed = genesisHeader.BlobGasUsed
-	if genesis.Alloc == nil {
-		h := genesisHeader.Hash()
+	// A nil or empty alloc, with a non-matching state-root in the block header, intents to override the state-root.
+	if genesis.Alloc == nil || (len(genesis.Alloc) == 0 && genesisHeader.Root != types.EmptyRootHash) {
+		h := genesisHeader.Root // the genesis block is encoded as RLP in the DB and will contain the state-root
 		genesis.StateHash = &h
+		genesis.Alloc = nil
 	}
 
 	return &genesis, nil
@@ -379,6 +381,7 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, triedb *triedb.Database, g
 	// Get the existing chain configuration.
 	newcfg := genesis.configOrDefault(stored)
 	applyOverrides(newcfg)
+
 	if err := newcfg.CheckConfigForkOrder(); err != nil {
 		return newcfg, common.Hash{}, err
 	}
@@ -388,7 +391,9 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, triedb *triedb.Database, g
 		rawdb.WriteChainConfig(db, stored, newcfg)
 		return newcfg, stored, nil
 	}
+
 	storedData, _ := json.Marshal(storedcfg)
+	log.Info("Stored config", "json", string(storedData))
 	// Special case: if a private network is being used (no genesis and also no
 	// mainnet hash in the database), we must not apply the `configOrDefault`
 	// chain config as that would be AllProtocolChanges (applying any new fork
@@ -398,6 +403,9 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, triedb *triedb.Database, g
 		newcfg = storedcfg
 		applyOverrides(newcfg)
 	}
+	newData, _ := json.Marshal(newcfg)
+	log.Info("New config", "json", string(newData), "genesis-nil", genesis == nil)
+
 	// Check config compatibility and write the config. Compatibility errors
 	// are returned to the caller unless we're already at block zero.
 	head := rawdb.ReadHeadHeader(db)
@@ -412,9 +420,13 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, triedb *triedb.Database, g
 	if compatErr != nil && ((head.Number.Uint64() != 0 && compatErr.RewindToBlock != 0) || (head.Time != 0 && compatErr.RewindToTime != 0)) {
 		return newcfg, stored, compatErr
 	}
+
 	// Don't overwrite if the old is identical to the new
-	if newData, _ := json.Marshal(newcfg); !bytes.Equal(storedData, newData) {
+	if !bytes.Equal(storedData, newData) {
+		log.Info("Configs differ")
 		rawdb.WriteChainConfig(db, stored, newcfg)
+	} else {
+		log.Info("Configs equal")
 	}
 	return newcfg, stored, nil
 }
@@ -567,12 +579,23 @@ func (g *Genesis) Commit(db ethdb.Database, triedb *triedb.Database) (*types.Blo
 	if config.Clique != nil && len(g.ExtraData) < 32+crypto.SignatureLength {
 		return nil, errors.New("can't start clique chain without signers")
 	}
-	// flush the data to disk and compute the state root
-	root, err := flushAlloc(&g.Alloc, triedb)
-	if err != nil {
-		return nil, err
+	var stateHash common.Hash
+	if len(g.Alloc) == 0 {
+		if g.StateHash == nil {
+			log.Warn("Empty genesis alloc, and no 'stateHash' override was set")
+			stateHash = types.EmptyRootHash // default to the hash of the empty state. Some unit-tests rely on this.
+		} else {
+			stateHash = *g.StateHash
+		}
+	} else {
+		// flush the data to disk and compute the state root
+		root, err := flushAlloc(&g.Alloc, triedb)
+		if err != nil {
+			return nil, err
+		}
+		stateHash = root
 	}
-	block := g.toBlockWithRoot(root)
+	block := g.toBlockWithRoot(stateHash)
 
 	// Marshal the genesis state specification and persist.
 	blob, err := json.Marshal(g.Alloc)
