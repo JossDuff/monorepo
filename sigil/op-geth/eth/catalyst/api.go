@@ -18,6 +18,7 @@
 package catalyst
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"strconv"
@@ -27,6 +28,7 @@ import (
 	"github.com/ethereum/go-ethereum/beacon/engine"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/consensus/misc/eip1559"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/stateless"
@@ -434,9 +436,22 @@ func (api *ConsensusAPI) forkchoiceUpdated(update engine.ForkchoiceStateV1, payl
 	// If payload generation was requested, create a new block to be potentially
 	// sealed by the beacon client. The payload will be requested later, and we
 	// will replace it arbitrarily many times in between.
+
 	if payloadAttributes != nil {
-		if api.eth.BlockChain().Config().Optimism != nil && payloadAttributes.GasLimit == nil {
-			return engine.STATUS_INVALID, engine.InvalidPayloadAttributes.With(errors.New("gasLimit parameter is required"))
+		var eip1559Params []byte
+		if api.eth.BlockChain().Config().Optimism != nil {
+			if payloadAttributes.GasLimit == nil {
+				return engine.STATUS_INVALID, engine.InvalidPayloadAttributes.With(errors.New("gasLimit parameter is required"))
+			}
+			if api.eth.BlockChain().Config().IsHolocene(payloadAttributes.Timestamp) {
+				if err := eip1559.ValidateHolocene1559Params(payloadAttributes.EIP1559Params); err != nil {
+					return engine.STATUS_INVALID, engine.InvalidPayloadAttributes.With(err)
+				}
+				eip1559Params = bytes.Clone(payloadAttributes.EIP1559Params)
+			} else if len(payloadAttributes.EIP1559Params) != 0 {
+				return engine.STATUS_INVALID,
+					engine.InvalidPayloadAttributes.With(errors.New("eip155Params not supported prior to Holocene upgrade"))
+			}
 		}
 		transactions := make(types.Transactions, 0, len(payloadAttributes.Transactions))
 		for i, otx := range payloadAttributes.Transactions {
@@ -447,16 +462,17 @@ func (api *ConsensusAPI) forkchoiceUpdated(update engine.ForkchoiceStateV1, payl
 			transactions = append(transactions, &tx)
 		}
 		args := &miner.BuildPayloadArgs{
-			Parent:       update.HeadBlockHash,
-			Timestamp:    payloadAttributes.Timestamp,
-			FeeRecipient: payloadAttributes.SuggestedFeeRecipient,
-			Random:       payloadAttributes.Random,
-			Withdrawals:  payloadAttributes.Withdrawals,
-			BeaconRoot:   payloadAttributes.BeaconRoot,
-			NoTxPool:     payloadAttributes.NoTxPool,
-			Transactions: transactions,
-			GasLimit:     payloadAttributes.GasLimit,
-			Version:      payloadVersion,
+			Parent:        update.HeadBlockHash,
+			Timestamp:     payloadAttributes.Timestamp,
+			FeeRecipient:  payloadAttributes.SuggestedFeeRecipient,
+			Random:        payloadAttributes.Random,
+			Withdrawals:   payloadAttributes.Withdrawals,
+			BeaconRoot:    payloadAttributes.BeaconRoot,
+			NoTxPool:      payloadAttributes.NoTxPool,
+			Transactions:  transactions,
+			GasLimit:      payloadAttributes.GasLimit,
+			Version:       payloadVersion,
+			EIP1559Params: eip1559Params,
 		}
 		id := args.Id()
 		// If we already are busy generating this work, then we do not need
@@ -825,6 +841,14 @@ func (api *ConsensusAPI) newPayload(params engine.ExecutableData, versionedHashe
 	//    sequentially.
 	// Hence, we use a lock here, to be sure that the previous call has finished before we
 	// check whether we already have the block locally.
+
+	// Payload must have eip-1559 params in ExtraData after Holocene
+	if api.eth.BlockChain().Config().IsHolocene(params.Timestamp) {
+		if err := eip1559.ValidateHoloceneExtraData(params.ExtraData); err != nil {
+			return api.invalid(err, nil), nil
+		}
+	}
+
 	api.newPayloadLock.Lock()
 	defer api.newPayloadLock.Unlock()
 
