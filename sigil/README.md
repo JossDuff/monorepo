@@ -27,7 +27,7 @@ debugging isolated proof requests and isn't used in prod.
 # /op-geth
 
 original repo: <https://github.com/ethereum-optimism/op-geth>
-forked version tag: v1.101411.0
+forked version tag: v1.101411.4
 
 Contains the execution node for the op-stack chain.
 
