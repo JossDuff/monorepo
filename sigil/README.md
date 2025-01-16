@@ -9,7 +9,7 @@ more about the OP stack architecture here: <https://docs.optimism.io/builders/ch
 # /op-succinct
 
 original repo: <https://github.com/succinctlabs/op-succinct/>
-forked version tag: `op-succinct-v1.0.0-rc6`
+forked version tag: `op-succinct-v1.0.0`
 
 Contains `op-succinct-proposer` and `op-succinct-server` ("proof server"").
 `op-succinct-proposer` monitors the L2 chain and periodically sends a request for
