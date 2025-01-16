@@ -20,8 +20,8 @@ use op_succinct_host_utils::{
     L2OutputOracle, ProgramType,
 };
 use op_succinct_proposer::{
-    AggProofRequest, ContractConfig, ProofResponse, ProofStatus, SpanProofRequest,
-    ValidateConfigRequest, ValidateConfigResponse, ProofStore
+    AggProofRequest, ProofResponse, ProofStatus, SpanProofRequest, SuccinctProposerConfig,
+    ValidateConfigRequest, ValidateConfigResponse,  ProofStore
 };
 use sp1_sdk::{
     network::{
@@ -43,6 +43,10 @@ pub const AGG_ELF: &[u8] = include_bytes!("../../../elf/aggregation-elf");
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Enable logging.
+    env::set_var("RUST_LOG", "info");
+
+    // Set up the SP1 SDK logger.
     utils::setup_logger();
 
     dotenv::dotenv().ok();
@@ -62,8 +66,18 @@ async fn main() -> Result<()> {
 
     let proof_store = Arc::new(RwLock::new(HashMap::new()));
 
+    // Set the proof strategies based on environment variables. Default to reserved to keep existing behavior.
+    let range_proof_strategy = match env::var("RANGE_PROOF_STRATEGY") {
+        Ok(strategy) if strategy.to_lowercase() == "hosted" => FulfillmentStrategy::Hosted,
+        _ => FulfillmentStrategy::Reserved,
+    };
+    let agg_proof_strategy = match env::var("AGG_PROOF_STRATEGY") {
+        Ok(strategy) if strategy.to_lowercase() == "hosted" => FulfillmentStrategy::Hosted,
+        _ => FulfillmentStrategy::Reserved,
+    };
+
     // Initialize global hashes.
-    let global_hashes = ContractConfig {
+    let global_hashes = SuccinctProposerConfig {
         agg_vkey_hash,
         range_vkey_commitment,
         rollup_config_hash,
@@ -73,6 +87,8 @@ async fn main() -> Result<()> {
         agg_pk,
         proof_store,
         prover_client
+        range_proof_strategy,
+        agg_proof_strategy,
     };
 
     let app = Router::new()
@@ -98,7 +114,7 @@ async fn main() -> Result<()> {
 
 /// Validate the configuration of the L2 Output Oracle.
 async fn validate_config(
-    State(state): State<ContractConfig>,
+    State(state): State<SuccinctProposerConfig>,
     Json(payload): Json<ValidateConfigRequest>,
 ) -> Result<(StatusCode, Json<ValidateConfigResponse>), AppError> {
     info!("Received validate config request: {:?}", payload);
@@ -127,7 +143,7 @@ async fn validate_config(
 
 /// Request a proof for a span of blocks.
 async fn request_span_proof(
-    State(state): State<ContractConfig>,
+    State(state): State<SuccinctProposerConfig>,
     Json(payload): Json<SpanProofRequest>,
 ) -> Result<(StatusCode, Json<ProofResponse>), AppError> {
     info!("Received span proof request");
@@ -189,17 +205,11 @@ async fn request_span_proof(
         }
     };
 
-    // TODO: do we need this client?
     // let client = ProverClient::builder().network().build();
-
-
-    let proof_id = send_proof(ProofType::Span, state.proof_store.clone(), state.prover_client.clone(), state.range_pk, sp1_stdin).await?;
-
-    // TODO: are these args needed?
     // let proof_id = client
     //     .prove(&state.range_pk, &sp1_stdin)
     //     .compressed()
-    //     .strategy(FulfillmentStrategy::Reserved)
+    //     .strategy(state.range_proof_strategy)
     //     .skip_simulation(true)
     //     .cycle_limit(1_000_000_000_000)
     //     .request_async()
@@ -209,12 +219,16 @@ async fn request_span_proof(
     //         AppError(anyhow::anyhow!("Failed to request proof: {}", e))
     //     })?;
 
+
+    let proof_id = send_proof(ProofType::Span, state.proof_store.clone(), state.prover_client.clone(), state.range_pk, sp1_stdin).await?;
+
+
     Ok((StatusCode::OK, Json(ProofResponse { proof_id })))
 }
 
 /// Request an aggregation proof for a set of subproofs.
 async fn request_agg_proof(
-    State(state): State<ContractConfig>,
+    State(state): State<SuccinctProposerConfig>,
     Json(payload): Json<AggProofRequest>,
 ) -> Result<(StatusCode, Json<ProofResponse>), AppError> {
     //info!("Received agg proof request");
@@ -261,8 +275,6 @@ async fn request_agg_proof(
         }
     };
 
-    // TODO: do we need this client?
-    //let prover = ProverClient::builder().network().build();
 
     let sp1_stdin =
         match get_agg_proof_stdin(proofs, boot_infos, headers, &state.range_vk, l1_head.into()) {
@@ -277,11 +289,10 @@ async fn request_agg_proof(
         };
 
     let proof_id = send_proof(ProofType::Agg, state.proof_store.clone(), state.prover_client.clone(), state.agg_pk, sp1_stdin).await?;
-    // TODO: are these args needed?
     // let proof_id = match prover
     //     .prove(&state.agg_pk, &stdin)
     //     .groth16()
-    //     .strategy(FulfillmentStrategy::Reserved)
+    //     .strategy(state.agg_proof_strategy)
     //     .request_async()
     //     .await
     // {
@@ -297,7 +308,7 @@ async fn request_agg_proof(
 
 /// Request a proof for a span of blocks.
 async fn request_mock_span_proof(
-    State(state): State<ContractConfig>,
+    State(state): State<SuccinctProposerConfig>,
     Json(payload): Json<SpanProofRequest>,
 ) -> Result<(StatusCode, Json<ProofStatus>), AppError> {
     info!("Received mock span proof request: {:?}", payload);
@@ -370,7 +381,7 @@ async fn request_mock_span_proof(
 
 /// Request mock aggregation proof.
 async fn request_mock_agg_proof(
-    State(state): State<ContractConfig>,
+    State(state): State<SuccinctProposerConfig>,
     Json(payload): Json<AggProofRequest>,
 ) -> Result<(StatusCode, Json<ProofStatus>), AppError> {
     info!("Received mock agg proof request!");
