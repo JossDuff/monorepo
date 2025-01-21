@@ -10,3 +10,6 @@
 [submodule "sigil/op-succinct/contracts/lib/sp1-contracts"]
 	path = sigil/op-succinct/contracts/lib/sp1-contracts
 	url = https://github.com/succinctlabs/sp1-contracts
+[submodule "sigl/op-succinct/contracts/lib/solady"]
+        path = sigil/op-succinct/contracts/lib/solady
+        url = https://github.com/vectorized/solady
