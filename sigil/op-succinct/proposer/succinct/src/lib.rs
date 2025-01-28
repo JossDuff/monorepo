@@ -2,9 +2,9 @@ use alloy_primitives::B256;
 use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
-use tokio::sync::{RwLock};
+use sp1_sdk::{network::FulfillmentStrategy, CudaProver, SP1ProvingKey, SP1VerifyingKey};
 use std::{collections::HashMap, sync::Arc};
-use sp1_sdk::{SP1ProvingKey, SP1VerifyingKey, CudaProver};
+use tokio::sync::RwLock;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ValidateConfigRequest {
@@ -84,7 +84,7 @@ pub type ProofStore = Arc<RwLock<HashMap<Vec<u8>, ProofStatus>>>;
 /// Configuration of the L2 Output Oracle contract. Created once at server start-up, monitors if there are any changes
 /// to the contract's configuration.
 #[derive(Clone)]
-pub struct ContractConfig {
+pub struct SuccinctProposerConfig {
     pub range_vk: SP1VerifyingKey,
     pub range_pk: SP1ProvingKey,
     pub agg_pk: SP1ProvingKey,
@@ -94,7 +94,9 @@ pub struct ContractConfig {
     pub rollup_config_hash: B256,
     // state variables.  TODO: remove from ContractConfig
     pub proof_store: ProofStore,
-    pub prover_client: Arc<CudaProver>
+    pub prover_client: Arc<CudaProver>,
+    pub range_proof_strategy: FulfillmentStrategy,
+    pub agg_proof_strategy: FulfillmentStrategy,
 }
 
 /// Deserialize a vector of base64 strings into a vector of vectors of bytes. Go serializes
