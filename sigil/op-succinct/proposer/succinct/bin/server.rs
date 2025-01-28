@@ -48,7 +48,7 @@ async fn main() -> Result<()> {
 
     dotenv::dotenv().ok();
 
-    let prover_client = Arc::new(ProverClient::from_env());
+    let prover_client = Arc::new(ProverClient::builder().cuda().build());
     let (range_pk, range_vk) = prover_client.setup(RANGE_ELF);
     let (agg_pk, agg_vk) = prover_client.setup(AGG_ELF);
     let multi_block_vkey_u8 = u32_to_u8(range_vk.vk.hash_u32());
