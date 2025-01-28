@@ -11,6 +11,10 @@ homepage.workspace = true
 name = "server"
 path = "bin/server.rs"
 
+[[bin]]
+name = "minimal-server"
+path = "bin/minimal-server.rs"
+
 [dependencies]
 
 # workspace
