@@ -7,7 +7,6 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use uuid::Uuid;
 use log::{error, info, warn};
 use op_succinct_client_utils::{
     boot::{hash_rollup_config, BootInfoStruct},
@@ -20,23 +19,21 @@ use op_succinct_host_utils::{
     L2OutputOracle, ProgramType,
 };
 use op_succinct_proposer::{
-    AggProofRequest, ProofResponse, ProofStatus, SpanProofRequest, SuccinctProposerConfig,
-    ValidateConfigRequest, ValidateConfigResponse,  ProofStore
+    AggProofRequest, ProofResponse, ProofStatus, ProofStore, SpanProofRequest,
+    SuccinctProposerConfig, ValidateConfigRequest, ValidateConfigResponse,
 };
 use sp1_sdk::{
     network::{
         proto::network::{ExecutionStatus, FulfillmentStatus},
         FulfillmentStrategy,
     },
-    utils, HashableKey, CudaProver, SP1Proof, SP1ProofWithPublicValues, 
-    SP1Stdin, SP1ProvingKey, ProverClient, Prover
+    utils, CudaProver, HashableKey, Prover, ProverClient, SP1Proof, SP1ProofWithPublicValues,
+    SP1ProvingKey, SP1Stdin,
 };
+use std::{collections::HashMap, env, fmt::Display, str::FromStr, sync::Arc};
 use tokio::sync::RwLock;
-use std::{
-    env, str::FromStr, time::Duration, fmt::Display, sync::Arc, 
-    collections::HashMap
-};
 use tower_http::limit::RequestBodyLimitLayer;
+use uuid::Uuid;
 
 pub const RANGE_ELF: &[u8] = include_bytes!("../../../elf/range-elf");
 pub const AGG_ELF: &[u8] = include_bytes!("../../../elf/aggregation-elf");
@@ -51,7 +48,7 @@ async fn main() -> Result<()> {
 
     dotenv::dotenv().ok();
 
-    let prover_client = Arc::new(ProverClient::builder().cuda().build());
+    let prover_client = Arc::new(ProverClient::from_env());
     let (range_pk, range_vk) = prover_client.setup(RANGE_ELF);
     let (agg_pk, agg_vk) = prover_client.setup(AGG_ELF);
     let multi_block_vkey_u8 = u32_to_u8(range_vk.vk.hash_u32());
@@ -86,7 +83,7 @@ async fn main() -> Result<()> {
         agg_vk,
         agg_pk,
         proof_store,
-        prover_client
+        prover_client,
         range_proof_strategy,
         agg_proof_strategy,
     };
@@ -219,9 +216,14 @@ async fn request_span_proof(
     //         AppError(anyhow::anyhow!("Failed to request proof: {}", e))
     //     })?;
 
-
-    let proof_id = send_proof(ProofType::Span, state.proof_store.clone(), state.prover_client.clone(), state.range_pk, sp1_stdin).await?;
-
+    let proof_id = send_proof(
+        ProofType::Span,
+        state.proof_store.clone(),
+        state.prover_client.clone(),
+        state.range_pk,
+        sp1_stdin,
+    )
+    .await?;
 
     Ok((StatusCode::OK, Json(ProofResponse { proof_id })))
 }
@@ -275,7 +277,6 @@ async fn request_agg_proof(
         }
     };
 
-
     let sp1_stdin =
         match get_agg_proof_stdin(proofs, boot_infos, headers, &state.range_vk, l1_head.into()) {
             Ok(s) => s,
@@ -288,7 +289,14 @@ async fn request_agg_proof(
             }
         };
 
-    let proof_id = send_proof(ProofType::Agg, state.proof_store.clone(), state.prover_client.clone(), state.agg_pk, sp1_stdin).await?;
+    let proof_id = send_proof(
+        ProofType::Agg,
+        state.proof_store.clone(),
+        state.prover_client.clone(),
+        state.agg_pk,
+        sp1_stdin,
+    )
+    .await?;
     // let proof_id = match prover
     //     .prove(&state.agg_pk, &stdin)
     //     .groth16()
@@ -471,7 +479,7 @@ async fn request_mock_agg_proof(
 
 /// Get the status of a proof.
 async fn get_proof_status(
-    State(state): State<ContractConfig>,
+    State(state): State<SuccinctProposerConfig>,
     Path(proof_id): Path<String>,
 ) -> Result<(StatusCode, Json<ProofStatus>), AppError> {
     info!("Received proof status request: {:?}", proof_id);
@@ -521,7 +529,7 @@ async fn get_proof_status(
             }),
         ));
     // otherwise, return current status & no proof
-    } else { 
+    } else {
         return Ok((
             StatusCode::OK,
             Json(ProofStatus {
@@ -531,11 +539,10 @@ async fn get_proof_status(
             }),
         ));
     }
-
 }
 
 // spawns a process that creates a proof locally
-// runs proof in a background thread.  Only needs to be async because of 
+// runs proof in a background thread.  Only needs to be async because of
 // proof_store.write().await.  It isn't blocked by anything else
 async fn send_proof(
     proof_type: ProofType,
@@ -544,31 +551,34 @@ async fn send_proof(
     proving_key: SP1ProvingKey,
     sp1_stdin: SP1Stdin,
 ) -> Result<Vec<u8>, AppError> {
-
     let proof_id = uuid_to_hex_bytes(Uuid::new_v4());
     let proof_id_clone = proof_id.clone();
 
     let initial_status = ProofStatus {
         fulfillment_status: 2,
         execution_status: 1,
-        proof: Vec::new()
+        proof: Vec::new(),
     };
 
-    proof_store.write().await.insert(proof_id.clone(), initial_status);
+    proof_store
+        .write()
+        .await
+        .insert(proof_id.clone(), initial_status);
 
     tokio::spawn(async move {
         let start_time = tokio::time::Instant::now();
         info!("computing {proof_type} proof with id {:?}", proof_id);
 
         let proof_res = match proof_type {
-            ProofType::Span => {
-                prover_client.prove(&proving_key, &sp1_stdin).compressed().run()
-            }
-            ProofType::Agg => {
-                prover_client.prove(&proving_key, &sp1_stdin).groth16().run()
-            }
+            ProofType::Span => prover_client
+                .prove(&proving_key, &sp1_stdin)
+                .compressed()
+                .run(),
+            ProofType::Agg => prover_client
+                .prove(&proving_key, &sp1_stdin)
+                .groth16()
+                .run(),
         };
-
 
         /*
         #[repr(i32)]
@@ -660,12 +670,12 @@ pub enum ProofType {
 }
 
 impl Display for ProofType {
-   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-       match self {
-           ProofType::Span => write!(f, "span"),
-           ProofType::Agg => write!(f, "agg"),
-       }
-   }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProofType::Span => write!(f, "span"),
+            ProofType::Agg => write!(f, "agg"),
+        }
+    }
 }
 
 fn uuid_to_hex_bytes(uuid: Uuid) -> Vec<u8> {

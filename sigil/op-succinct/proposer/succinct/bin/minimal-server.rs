@@ -12,7 +12,6 @@ use op_succinct_proposer::{
     SpanProofRequest
 };
 use sp1_sdk::{
-    Prover,
     HashableKey,
     utils, ProverClient 
 };
