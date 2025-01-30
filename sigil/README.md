@@ -104,13 +104,15 @@ openssl rand -hex 32 > jwt.txt
 
 # Maintaining
 
-The repos in this folder were dragged in via `git subtree`, a less burdonsome
+The repos in this folder were dragged in via `git subtree`, a less burdensome
 alternative to git submodules.  See below for how to change versions of these
 dependencies.  All commands are run from the repository root `monorepo/`.
 
 Example: changing version of `optimism` to the release tag `v99.99.99`.
 
 ```bash
+git remote add sigil/optimism https://github.com/ethereum-optimism/optimism.git
+
 git fetch sigil/optimism
 
 git subtree merge -P sigil/optimism --squash tags/v99.99.99
