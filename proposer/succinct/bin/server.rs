@@ -34,7 +34,7 @@ use sp1_sdk::{
 use std::{
     env, fs,
     str::FromStr,
-    time::{Duration, Instant},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 use tower_http::limit::RequestBodyLimitLayer;
 
@@ -537,36 +537,37 @@ async fn get_proof_status(
 
     let proof_id_bytes = hex::decode(proof_id)?;
 
-    // Time out this request if it takes too long.
-    let timeout = Duration::from_secs(10);
-    let (status, maybe_proof) = match tokio::time::timeout(
-        timeout,
-        client.get_proof_status(B256::from_slice(&proof_id_bytes)),
-    )
-    .await
+    // This request will time out if the server is down.
+    let (status, maybe_proof) = match client
+        .get_proof_status(B256::from_slice(&proof_id_bytes))
+        .await
     {
-        Ok(Ok(result)) => result,
-        Ok(Err(_)) => {
-            return Ok((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ProofStatus {
-                    fulfillment_status: FulfillmentStatus::UnspecifiedFulfillmentStatus.into(),
-                    execution_status: ExecutionStatus::UnspecifiedExecutionStatus.into(),
-                    proof: vec![],
-                }),
-            ));
-        }
-        Err(_) => {
-            return Ok((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ProofStatus {
-                    fulfillment_status: FulfillmentStatus::UnspecifiedFulfillmentStatus.into(),
-                    execution_status: ExecutionStatus::UnspecifiedExecutionStatus.into(),
-                    proof: vec![],
-                }),
-            ));
+        Ok(res) => res,
+        Err(e) => {
+            error!("Failed to get proof status: {}", e);
+            return Err(AppError(e));
         }
     };
+
+    // Check the deadline.
+    if status.deadline
+        < SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+    {
+        error!(
+            "Proof request timed out on the server. Default timeout is set to 4 hours. Returning status as Unfulfillable."
+        );
+        return Ok((
+            StatusCode::OK,
+            Json(ProofStatus {
+                fulfillment_status: FulfillmentStatus::Unfulfillable.into(),
+                execution_status: ExecutionStatus::Executed.into(),
+                proof: vec![],
+            }),
+        ));
+    }
 
     let fulfillment_status = status.fulfillment_status;
     let execution_status = status.execution_status;
