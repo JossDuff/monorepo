@@ -105,9 +105,10 @@ func (lvl SafetyLevel) String() string {
 	return string(lvl)
 }
 
-func (lvl SafetyLevel) Valid() bool {
+// Validate returns true if the SafetyLevel is one of the recognized levels
+func (lvl SafetyLevel) Validate() bool {
 	switch lvl {
-	case Finalized, CrossSafe, LocalSafe, CrossUnsafe, LocalUnsafe:
+	case Invalid, Finalized, CrossSafe, LocalSafe, CrossUnsafe, LocalUnsafe:
 		return true
 	default:
 		return false
@@ -123,7 +124,7 @@ func (lvl *SafetyLevel) UnmarshalText(text []byte) error {
 		return errors.New("cannot unmarshal into nil SafetyLevel")
 	}
 	x := SafetyLevel(text)
-	if !x.Valid() {
+	if !x.Validate() {
 		return fmt.Errorf("unrecognized safety level: %q", text)
 	}
 	*lvl = x
@@ -309,4 +310,114 @@ func LogToMessagePayload(l *ethTypes.Log) []byte {
 	}
 	msg = append(msg, l.Data...)
 	return msg
+}
+
+// DerivedBlockRefPair is a pair of block refs, where Derived (L2) is derived from DerivedFrom (L1).
+type DerivedBlockRefPair struct {
+	DerivedFrom eth.BlockRef
+	Derived     eth.BlockRef
+}
+
+func (refs *DerivedBlockRefPair) IDs() DerivedIDPair {
+	return DerivedIDPair{
+		DerivedFrom: refs.DerivedFrom.ID(),
+		Derived:     refs.Derived.ID(),
+	}
+}
+
+// DerivedBlockSealPair is a pair of block seals, where Derived (L2) is derived from DerivedFrom (L1).
+type DerivedBlockSealPair struct {
+	DerivedFrom BlockSeal
+	Derived     BlockSeal
+}
+
+func (seals *DerivedBlockSealPair) IDs() DerivedIDPair {
+	return DerivedIDPair{
+		DerivedFrom: seals.DerivedFrom.ID(),
+		Derived:     seals.Derived.ID(),
+	}
+}
+
+// DerivedIDPair is a pair of block IDs, where Derived (L2) is derived from DerivedFrom (L1).
+type DerivedIDPair struct {
+	DerivedFrom eth.BlockID
+	Derived     eth.BlockID
+}
+
+// ManagedEvent is an event sent by the managed node to the supervisor,
+// to share an update. One of the fields will be non-null; different kinds of updates may be sent.
+type ManagedEvent struct {
+	Reset            *string              `json:"reset,omitempty"`
+	UnsafeBlock      *eth.BlockRef        `json:"unsafeBlock,omitempty"`
+	DerivationUpdate *DerivedBlockRefPair `json:"derivationUpdate,omitempty"`
+	ExhaustL1        *DerivedBlockRefPair `json:"exhaustL1,omitempty"`
+}
+
+type ChainRootInfo struct {
+	ChainID ChainID `json:"chainID"`
+	// Canonical is the output root of the latest canonical block at a particular Timestamp.
+	Canonical eth.Bytes32 `json:"canonical"`
+	// Pending is the output root preimage for the latest block at a particular Timestamp prior to validation of
+	// executing messages. If the original block was valid, this will be the preimage of the
+	// output root from the Canonical array. If it was invalid, it will be the output root preimage from the
+	// Optimistic Block Deposited Transaction added to the deposit-only block.
+	Pending []byte `json:"pending"`
+}
+
+type chainRootInfoMarshalling struct {
+	ChainID   ChainID       `json:"chainID"`
+	Canonical common.Hash   `json:"canonical"`
+	Pending   hexutil.Bytes `json:"pending"`
+}
+
+func (i ChainRootInfo) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&chainRootInfoMarshalling{
+		ChainID:   i.ChainID,
+		Canonical: common.Hash(i.Canonical),
+		Pending:   i.Pending,
+	})
+}
+
+func (i *ChainRootInfo) UnmarshalJSON(input []byte) error {
+	var dec chainRootInfoMarshalling
+	if err := json.Unmarshal(input, &dec); err != nil {
+		return err
+	}
+	i.ChainID = dec.ChainID
+	i.Canonical = eth.Bytes32(dec.Canonical)
+	i.Pending = dec.Pending
+	return nil
+}
+
+type SuperRootResponse struct {
+	Timestamp uint64      `json:"timestamp"`
+	SuperRoot eth.Bytes32 `json:"superRoot"`
+	// Chains is the list of ChainRootInfo for each chain in the dependency set.
+	// It represents the state of the chain at or before the Timestamp.
+	Chains []ChainRootInfo `json:"chains"`
+}
+
+type superRootResponseMarshalling struct {
+	Timestamp hexutil.Uint64  `json:"timestamp"`
+	SuperRoot common.Hash     `json:"superRoot"`
+	Chains    []ChainRootInfo `json:"chains"`
+}
+
+func (r SuperRootResponse) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&superRootResponseMarshalling{
+		Timestamp: hexutil.Uint64(r.Timestamp),
+		SuperRoot: common.Hash(r.SuperRoot),
+		Chains:    r.Chains,
+	})
+}
+
+func (r *SuperRootResponse) UnmarshalJSON(input []byte) error {
+	var dec superRootResponseMarshalling
+	if err := json.Unmarshal(input, &dec); err != nil {
+		return err
+	}
+	r.Timestamp = uint64(dec.Timestamp)
+	r.SuperRoot = eth.Bytes32(dec.SuperRoot)
+	r.Chains = dec.Chains
+	return nil
 }

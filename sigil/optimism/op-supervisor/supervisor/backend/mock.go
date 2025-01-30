@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/frontend"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 )
 
 type MockBackend struct {
@@ -50,12 +51,12 @@ func (m *MockBackend) CheckMessages(messages []types.Message, minSafety types.Sa
 	return nil
 }
 
-func (m *MockBackend) UnsafeView(ctx context.Context, chainID types.ChainID, unsafe types.ReferenceView) (types.ReferenceView, error) {
-	return types.ReferenceView{}, nil
+func (m *MockBackend) LocalUnsafe(ctx context.Context, chainID types.ChainID) (eth.BlockID, error) {
+	return eth.BlockID{}, nil
 }
 
-func (m *MockBackend) SafeView(ctx context.Context, chainID types.ChainID, safe types.ReferenceView) (types.ReferenceView, error) {
-	return types.ReferenceView{}, nil
+func (m *MockBackend) CrossSafe(ctx context.Context, chainID types.ChainID) (types.DerivedIDPair, error) {
+	return types.DerivedIDPair{}, nil
 }
 
 func (m *MockBackend) Finalized(ctx context.Context, chainID types.ChainID) (eth.BlockID, error) {
@@ -70,16 +71,8 @@ func (m *MockBackend) CrossDerivedFrom(ctx context.Context, chainID types.ChainI
 	return eth.BlockRef{}, nil
 }
 
-func (m *MockBackend) UpdateLocalUnsafe(ctx context.Context, chainID types.ChainID, head eth.BlockRef) error {
-	return nil
-}
-
-func (m *MockBackend) UpdateLocalSafe(ctx context.Context, chainID types.ChainID, derivedFrom eth.BlockRef, lastDerived eth.BlockRef) error {
-	return nil
-}
-
-func (m *MockBackend) UpdateFinalizedL1(ctx context.Context, chainID types.ChainID, finalized eth.BlockRef) error {
-	return nil
+func (m *MockBackend) SuperRootAtTimestamp(ctx context.Context, timestamp hexutil.Uint64) (types.SuperRootResponse, error) {
+	return types.SuperRootResponse{}, nil
 }
 
 func (m *MockBackend) Close() error {
