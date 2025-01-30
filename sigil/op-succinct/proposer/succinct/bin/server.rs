@@ -27,10 +27,15 @@ use sp1_sdk::{
         proto::network::{ExecutionStatus, FulfillmentStatus},
         FulfillmentStrategy,
     },
-    utils, CudaProver, HashableKey, Prover, ProverClient, SP1Proof, SP1ProofWithPublicValues,
-    SP1ProvingKey, SP1Stdin,
+    utils, HashableKey, Prover, ProverClient, SP1Proof, SP1ProofMode, SP1ProofWithPublicValues,
+    SP1_CIRCUIT_VERSION,
 };
 use std::{collections::HashMap, env, fmt::Display, str::FromStr, sync::Arc};
+use std::{
+    env, fs,
+    str::FromStr,
+    time::{Instant, SystemTime, UNIX_EPOCH},
+};
 use tokio::sync::RwLock;
 use tower_http::limit::RequestBodyLimitLayer;
 use uuid::Uuid;
@@ -510,6 +515,26 @@ async fn get_proof_status(
             }
         }
     };
+
+    // Check the deadline.
+    if status.deadline
+        < SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+    {
+        error!(
+            "Proof request timed out on the server. Default timeout is set to 4 hours. Returning status as Unfulfillable."
+        );
+        return Ok((
+            StatusCode::OK,
+            Json(ProofStatus {
+                fulfillment_status: FulfillmentStatus::Unfulfillable.into(),
+                execution_status: ExecutionStatus::Executed.into(),
+                proof: vec![],
+            }),
+        ));
+    }
 
     let fulfillment_status = status.fulfillment_status;
     let execution_status = status.execution_status;
