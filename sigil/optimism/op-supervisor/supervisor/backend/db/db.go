@@ -8,11 +8,13 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/log"
 
+	"github.com/ethereum-optimism/optimism/op-node/rollup/event"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-service/locks"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/db/fromda"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/db/logs"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/depset"
+	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/backend/superevents"
 	"github.com/ethereum-optimism/optimism/op-supervisor/supervisor/types"
 )
 
@@ -96,13 +98,37 @@ type ChainsDB struct {
 	depSet depset.DependencySet
 
 	logger log.Logger
+
+	// emitter used to signal when the DB changes, for other modules to react to
+	emitter event.Emitter
 }
+
+var _ event.AttachEmitter = (*ChainsDB)(nil)
 
 func NewChainsDB(l log.Logger, depSet depset.DependencySet) *ChainsDB {
 	return &ChainsDB{
 		logger: l,
 		depSet: depSet,
 	}
+}
+
+func (db *ChainsDB) AttachEmitter(em event.Emitter) {
+	db.emitter = em
+}
+
+func (db *ChainsDB) OnEvent(ev event.Event) bool {
+	switch x := ev.(type) {
+	case superevents.AnchorEvent:
+		db.maybeInitEventsDB(x.ChainID, x.Anchor)
+		db.maybeInitSafeDB(x.ChainID, x.Anchor)
+	case superevents.LocalDerivedEvent:
+		db.UpdateLocalSafe(x.ChainID, x.Derived.DerivedFrom, x.Derived.Derived)
+	case superevents.FinalizedL1RequestEvent:
+		db.onFinalizedL1(x.FinalizedL1)
+	default:
+		return false
+	}
+	return true
 }
 
 func (db *ChainsDB) AddLogDB(chainID types.ChainID, logDB LogStorage) {
