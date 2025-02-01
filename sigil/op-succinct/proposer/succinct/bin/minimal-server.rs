@@ -6,11 +6,12 @@ use op_succinct_client_utils::{boot::BootInfoStruct, types::u32_to_u8};
 use op_succinct_host_utils::{
     fetcher::{CacheMode, OPSuccinctDataFetcher, RunContext},
     get_proof_stdin,
+    get_agg_proof_stdin,
     witnessgen::{WitnessGenExecutor, WITNESSGEN_TIMEOUT},
     ProgramType,
 };
 use op_succinct_proposer::SpanProofRequest;
-use sp1_sdk::{utils, HashableKey, ProverClient, SP1Proof, SP1VerifyingKey};
+use sp1_sdk::{utils, HashableKey, ProverClient, SP1Proof, SP1VerifyingKey, SP1ProofWithPublicValues};
 use std::{fs, str::FromStr};
 
 pub const RANGE_ELF: &[u8] = include_bytes!("../../../elf/range-elf");
@@ -151,11 +152,14 @@ async fn main() -> Result<()> {
 fn load_aggregation_proof_data(
     proof_path: String,
     range_vkey: &SP1VerifyingKey,
-) -> (SP1Proof, BootInfoStruct) {
+) -> (Vec<SP1Proof>, Vec<BootInfoStruct>) {
+
+    let prover = ProverClient::builder().cpu().build();
 
     if fs::metadata(&proof_path).is_err() {
         panic!("Proof file not found: {}", proof_path);
     }
+
     let mut deserialized_proof =
         SP1ProofWithPublicValues::load(proof_path).expect("loading proof failed");
 
@@ -163,11 +167,9 @@ fn load_aggregation_proof_data(
         .verify(&deserialized_proof, range_vkey)
         .expect("proof verification failed");
 
-    proofs.push(deserialized_proof.proof);
-
     // The public values are the BootInfoStruct.
     let boot_info = deserialized_proof.public_values.read();
 
-    ( deserialized_proof.proof, boot_info)
+    ( vec![deserialized_proof.proof], vec![boot_info])
 
 }
