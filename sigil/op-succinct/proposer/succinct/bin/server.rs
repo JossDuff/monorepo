@@ -28,12 +28,11 @@ use sp1_sdk::{
         FulfillmentStrategy,
     },
     utils, HashableKey, Prover, ProverClient, SP1Proof, SP1ProofMode, SP1ProofWithPublicValues,
-    SP1_CIRCUIT_VERSION,
+    SP1_CIRCUIT_VERSION, SP1Stdin, SP1ProvingKey, CudaProver
 };
-use std::{collections::HashMap, env, fmt::Display, str::FromStr, sync::Arc};
 use std::{
-    env, fs,
-    str::FromStr,
+    fs,
+    collections::HashMap, env, fmt::Display, str::FromStr, sync::Arc,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::RwLock;

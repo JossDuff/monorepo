@@ -11,7 +11,7 @@ use op_succinct_host_utils::{
     ProgramType,
 };
 use op_succinct_proposer::SpanProofRequest;
-use sp1_sdk::{utils, HashableKey, ProverClient, SP1Proof, SP1VerifyingKey, SP1ProofWithPublicValues};
+use sp1_sdk::{utils, HashableKey, ProverClient, SP1Proof, SP1VerifyingKey, Prover, SP1ProofWithPublicValues};
 use std::{fs, str::FromStr};
 
 pub const RANGE_ELF: &[u8] = include_bytes!("../../../elf/range-elf");
@@ -108,7 +108,7 @@ async fn main() -> Result<()> {
 
     // Save the proof to the proof directory corresponding to the chain ID.
     proof
-        .save(proof_path)
+        .save(&proof_path)
         .expect("saving proof failed");
 
     info!("saved proof to {}", proof_path);
