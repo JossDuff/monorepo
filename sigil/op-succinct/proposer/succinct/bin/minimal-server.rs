@@ -4,13 +4,12 @@ use log::{error, info};
 use op_succinct_client_utils::{boot::BootInfoStruct, types::u32_to_u8};
 use op_succinct_host_utils::{
     fetcher::{CacheMode, OPSuccinctDataFetcher, RunContext},
-    get_proof_stdin,
-    get_agg_proof_stdin,
+    get_agg_proof_stdin, get_proof_stdin,
     witnessgen::{WitnessGenExecutor, WITNESSGEN_TIMEOUT},
     ProgramType,
 };
 use op_succinct_proposer::SpanProofRequest;
-use sp1_sdk::{utils, HashableKey, ProverClient, SP1Proof, SP1VerifyingKey, Prover, SP1ProofWithPublicValues};
+use sp1_sdk::{utils, HashableKey, ProverClient, SP1Proof, SP1ProofWithPublicValues};
 use std::{fs, str::FromStr};
 
 pub const RANGE_ELF: &[u8] = include_bytes!("../../../elf/range-elf");
@@ -24,7 +23,7 @@ async fn main() -> Result<()> {
     // dummy payload
     let payload = SpanProofRequest {
         start: l2_start_block,
-        end: l2_end_block, 
+        end: l2_end_block,
     };
 
     utils::setup_logger();
@@ -98,15 +97,10 @@ async fn main() -> Result<()> {
     if !std::path::Path::new(&proof_dir).exists() {
         fs::create_dir_all(&proof_dir).unwrap();
     }
-    let proof_path = format!(
-            "{}/{}-{}.bin",
-            proof_dir, l2_start_block, l2_end_block
-        );
+    let proof_path = format!("{}/{}-{}.bin", proof_dir, l2_start_block, l2_end_block);
 
     // Save the proof to the proof directory corresponding to the chain ID.
-    proof
-        .save(&proof_path)
-        .expect("saving proof failed");
+    proof.save(&proof_path).expect("saving proof failed");
 
     info!("saved proof to {}", proof_path);
     drop(prover);
@@ -126,8 +120,8 @@ async fn main() -> Result<()> {
     let headers = fetcher
         .get_header_preimages(&boot_infos, header.hash_slow())
         .await?;
-    let multi_block_vkey_u8 = u32_to_u8(vkey.vk.hash_u32());
-    let multi_block_vkey_b256 = B256::from(multi_block_vkey_u8);
+    // let multi_block_vkey_u8 = u32_to_u8(vkey.vk.hash_u32());
+    // let multi_block_vkey_b256 = B256::from(multi_block_vkey_u8);
 
     // println!(
     //     "Range ELF Verification Key Commitment: {}",
@@ -136,7 +130,7 @@ async fn main() -> Result<()> {
     let stdin =
         get_agg_proof_stdin(proofs, boot_infos, headers, &vkey, header.hash_slow()).unwrap();
 
-    let (agg_pk, agg_vk) = prover.setup(AGG_ELF);
+    let (agg_pk, _) = prover.setup(AGG_ELF);
     // println!("Aggregate ELF Verification Key: {:?}", agg_vk.vk.bytes32());
     //
     //
@@ -153,10 +147,7 @@ async fn main() -> Result<()> {
 }
 
 /// Load the aggregation proof data.
-fn load_aggregation_proof_data(
-    proof_path: String,
-) -> (Vec<SP1Proof>, Vec<BootInfoStruct>) {
-
+fn load_aggregation_proof_data(proof_path: String) -> (Vec<SP1Proof>, Vec<BootInfoStruct>) {
     if fs::metadata(&proof_path).is_err() {
         panic!("Proof file not found: {}", proof_path);
     }
@@ -167,6 +158,5 @@ fn load_aggregation_proof_data(
     // The public values are the BootInfoStruct.
     let boot_info = deserialized_proof.public_values.read();
 
-    ( vec![deserialized_proof.proof], vec![boot_info])
-
+    (vec![deserialized_proof.proof], vec![boot_info])
 }
