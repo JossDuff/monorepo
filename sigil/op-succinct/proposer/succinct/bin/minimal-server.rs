@@ -1,6 +1,5 @@
 use alloy_primitives::B256;
 use anyhow::Result;
-use cargo_metadata::MetadataCommand;
 use log::{error, info};
 use op_succinct_client_utils::{boot::BootInfoStruct, types::u32_to_u8};
 use op_succinct_host_utils::{

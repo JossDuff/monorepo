@@ -516,24 +516,25 @@ async fn get_proof_status(
     };
 
     // Check the deadline.
-    if status.deadline
-        < SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-    {
-        error!(
-            "Proof request timed out on the server. Default timeout is set to 4 hours. Returning status as Unfulfillable."
-        );
-        return Ok((
-            StatusCode::OK,
-            Json(ProofStatus {
-                fulfillment_status: FulfillmentStatus::Unfulfillable.into(),
-                execution_status: ExecutionStatus::Executed.into(),
-                proof: vec![],
-            }),
-        ));
-    }
+    // TODO: add back in 
+    // if status.deadline
+    //     < SystemTime::now()
+    //         .duration_since(UNIX_EPOCH)
+    //         .unwrap()
+    //         .as_secs()
+    // {
+    //     error!(
+    //         "Proof request timed out on the server. Default timeout is set to 4 hours. Returning status as Unfulfillable."
+    //     );
+    //     return Ok((
+    //         StatusCode::OK,
+    //         Json(ProofStatus {
+    //             fulfillment_status: FulfillmentStatus::Unfulfillable.into(),
+    //             execution_status: ExecutionStatus::Executed.into(),
+    //             proof: vec![],
+    //         }),
+    //     ));
+    // }
 
     let fulfillment_status = status.fulfillment_status;
     let execution_status = status.execution_status;
