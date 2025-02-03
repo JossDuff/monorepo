@@ -23,19 +23,11 @@ use op_succinct_proposer::{
     SuccinctProposerConfig, ValidateConfigRequest, ValidateConfigResponse,
 };
 use sp1_sdk::{
-    network::{
-        proto::network::{ExecutionStatus, FulfillmentStatus},
-        FulfillmentStrategy,
-    },
-    utils, HashableKey, Prover, ProverClient, SP1Proof, SP1ProofMode, SP1ProofWithPublicValues,
-    SP1_CIRCUIT_VERSION,
+    network::proto::network::{ExecutionStatus, FulfillmentStatus},
+    utils, CudaProver, HashableKey, Prover, ProverClient, SP1Proof, SP1ProofWithPublicValues,
+    SP1ProvingKey, SP1Stdin,
 };
 use std::{collections::HashMap, env, fmt::Display, str::FromStr, sync::Arc};
-use std::{
-    env, fs,
-    str::FromStr,
-    time::{Instant, SystemTime, UNIX_EPOCH},
-};
 use tokio::sync::RwLock;
 use tower_http::limit::RequestBodyLimitLayer;
 use uuid::Uuid;
@@ -68,16 +60,6 @@ async fn main() -> Result<()> {
 
     let proof_store = Arc::new(RwLock::new(HashMap::new()));
 
-    // Set the proof strategies based on environment variables. Default to reserved to keep existing behavior.
-    let range_proof_strategy = match env::var("RANGE_PROOF_STRATEGY") {
-        Ok(strategy) if strategy.to_lowercase() == "hosted" => FulfillmentStrategy::Hosted,
-        _ => FulfillmentStrategy::Reserved,
-    };
-    let agg_proof_strategy = match env::var("AGG_PROOF_STRATEGY") {
-        Ok(strategy) if strategy.to_lowercase() == "hosted" => FulfillmentStrategy::Hosted,
-        _ => FulfillmentStrategy::Reserved,
-    };
-
     // Initialize global hashes.
     let global_hashes = SuccinctProposerConfig {
         agg_vkey_hash,
@@ -89,8 +71,6 @@ async fn main() -> Result<()> {
         agg_pk,
         proof_store,
         prover_client,
-        range_proof_strategy,
-        agg_proof_strategy,
     };
 
     let app = Router::new()
@@ -489,8 +469,6 @@ async fn get_proof_status(
 ) -> Result<(StatusCode, Json<ProofStatus>), AppError> {
     info!("Received proof status request: {:?}", proof_id);
 
-    //let client = ProverClient::builder().network().build();
-
     let proof_id = hex::decode(proof_id)?;
 
     // request read-only copy of proof_store
@@ -502,7 +480,6 @@ async fn get_proof_status(
             ProofStatus {
                 fulfillment_status: proof_status.fulfillment_status,
                 execution_status: proof_status.execution_status,
-                // TODO: fix this clone
                 proof: proof_status.proof.clone(),
             }
         }
@@ -517,24 +494,25 @@ async fn get_proof_status(
     };
 
     // Check the deadline.
-    if status.deadline
-        < SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-    {
-        error!(
-            "Proof request timed out on the server. Default timeout is set to 4 hours. Returning status as Unfulfillable."
-        );
-        return Ok((
-            StatusCode::OK,
-            Json(ProofStatus {
-                fulfillment_status: FulfillmentStatus::Unfulfillable.into(),
-                execution_status: ExecutionStatus::Executed.into(),
-                proof: vec![],
-            }),
-        ));
-    }
+    // TODO: add back in
+    // if status.deadline
+    //     < SystemTime::now()
+    //         .duration_since(UNIX_EPOCH)
+    //         .unwrap()
+    //         .as_secs()
+    // {
+    //     error!(
+    //         "Proof request timed out on the server. Default timeout is set to 4 hours. Returning status as Unfulfillable."
+    //     );
+    //     return Ok((
+    //         StatusCode::OK,
+    //         Json(ProofStatus {
+    //             fulfillment_status: FulfillmentStatus::Unfulfillable.into(),
+    //             execution_status: ExecutionStatus::Executed.into(),
+    //             proof: vec![],
+    //         }),
+    //     ));
+    // }
 
     let fulfillment_status = status.fulfillment_status;
     let execution_status = status.execution_status;
@@ -595,17 +573,29 @@ async fn send_proof(
         info!("computing {proof_type} proof with id {:?}", proof_id);
 
         let proof_res = match proof_type {
-            ProofType::Span => prover_client
-                .prove(&proving_key, &sp1_stdin)
-                .compressed()
-                .run(),
-            ProofType::Agg => prover_client
-                .prove(&proving_key, &sp1_stdin)
-                .groth16()
-                .run(),
+            ProofType::Span => {
+                // the cuda prover keeps state of the last `setup()` that was called on it.
+                // You must call `setup()` then `prove` *each* time you intend to
+                // prove a certain program
+                let _ = prover_client.setup(RANGE_ELF);
+                prover_client
+                    .prove(&proving_key, &sp1_stdin)
+                    .compressed()
+                    .run()
+            }
+            ProofType::Agg => {
+                // the cuda prover keeps state of the last `setup()` that was called on it.
+                // You must call `setup()` then `prove` *each* time you intend to
+                // prove a certain program
+                let _ = prover_client.setup(AGG_ELF);
+                prover_client
+                    .prove(&proving_key, &sp1_stdin)
+                    .groth16()
+                    .run()
+            }
         };
 
-        /*
+        /* FOR REFERENCE
         #[repr(i32)]
         pub enum ExecutionStatus {
             UnspecifiedExecutionStatus = 0,
