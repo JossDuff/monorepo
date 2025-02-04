@@ -27,6 +27,7 @@ use op_alloy_rpc_types::{OpTransactionReceipt, OutputResponse, SafeHeadResponse}
 use op_succinct_client_utils::boot::BootInfoStruct;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use dotenv::dotenv;
 use std::{
     cmp::{min, Ordering},
     collections::HashMap,
@@ -93,6 +94,7 @@ pub enum RunContext {
 }
 
 fn get_rpcs() -> RPCConfig {
+    dotenv().ok();
     let l1_rpc = env::var("L1_RPC").expect("L1_RPC must be set");
     let l1_beacon_rpc = env::var("L1_BEACON_RPC").expect("L1_BEACON_RPC must be set");
     let l2_rpc = env::var("L2_RPC").expect("L2_RPC must be set");
