@@ -150,6 +150,27 @@ async fn request_span_proof(
     Json(payload): Json<SpanProofRequest>,
 ) -> Result<(StatusCode, Json<ProofResponse>), AppError> {
     info!("Received span proof request: {:?}", payload);
+
+    // check to see if we already have this proof saved to disk
+    // format for name is "<proof_type>-<from_block>-<to_block>"
+    let from_block = payload.start;
+    let to_block = payload.end;
+    let proof_file_path = format!("span-{from_block}-{to_block}");
+    //let proof_file_path = format!("saved-proofs/{proof_file_name}");
+    // if the proof was previously made, skip the network request
+    if let Ok(_) = fs::read(proof_file_path.clone()) {
+        let proof_id = uuid::Uuid::new_v4();
+        let proof_id = proof_id.as_bytes();
+        let proof_id_hex = hex::encode(proof_id);
+        info!("Proof found locally at {proof_file_path}, skipping network request.  Assigning it id {proof_id_hex}");
+        return Ok((
+            StatusCode::OK,
+            Json(ProofResponse {
+                proof_id: proof_id.to_vec(),
+            }),
+        ));
+    }
+
     let fetcher = match OPSuccinctDataFetcher::new_with_rollup_config(RunContext::Docker).await {
         Ok(f) => f,
         Err(e) => {
@@ -219,6 +240,7 @@ async fn request_agg_proof(
     Json(payload): Json<AggProofRequest>,
 ) -> Result<(StatusCode, Json<ProofResponse>), AppError> {
     info!("Received agg proof request");
+
     let mut proofs_with_pv: Vec<SP1ProofWithPublicValues> = payload
         .subproofs
         .iter()
@@ -520,6 +542,53 @@ async fn get_proof_status(
 
     let proof_id_bytes = hex::decode(proof_id)?;
 
+    // first check to see if we have the proof locally
+    // format for name is "<proof_type>-<from_block>-<to_block>"
+    let from_block = payload.start;
+    let to_block = payload.end;
+    let proof_file_path = format!("span-{from_block}-{to_block}");
+    //let proof_file_path = format!("saved-proofs/{proof_file_name}");
+
+    if let Ok(proof_bytes) = fs::read(proof_file_path.clone()) {
+        info!("Proof found locally at {proof_file_path}, returning it now.");
+
+        /* FOR REFERENCE
+        #[repr(i32)]
+        pub enum ExecutionStatus {
+            UnspecifiedExecutionStatus = 0,
+            /// The request has not been executed.
+            Unexecuted = 1,
+            /// The request has been executed.
+            Executed = 2,
+            /// The request cannot be executed.
+            Unexecutable = 3,
+        }
+
+        #[repr(i32)]
+        pub enum FulfillmentStatus {
+            UnspecifiedFulfillmentStatus = 0,
+            /// The request has been requested.
+            Requested = 1,
+            /// The request has been assigned to a fulfiller.
+            Assigned = 2,
+            /// The request has been fulfilled.
+            Fulfilled = 3,
+            /// The request cannot be fulfilled.
+            Unfulfillable = 4,
+        }
+        * */
+        let fulfillment_status = 3;
+        let execution_status = 2;
+        return Ok((
+            StatusCode::OK,
+            Json(ProofStatus {
+                fulfillment_status,
+                execution_status,
+                proof: proof_bytes,
+            }),
+        ));
+    }
+
     // This request will time out if the server is down.
     let (status, maybe_proof) = match state
         .network_prover
@@ -564,6 +633,7 @@ async fn get_proof_status(
                 // Note: We're re-serializing the entire struct with bincode here, but this is fine
                 // because we're on localhost and the size of the struct is small.
                 let proof_bytes = bincode::serialize(&proof).unwrap();
+                fs::write(proof_file_path, &proof_bytes);
                 return Ok((
                     StatusCode::OK,
                     Json(ProofStatus {
@@ -576,6 +646,7 @@ async fn get_proof_status(
             SP1Proof::Groth16(_) => {
                 // If it's a groth16 proof, we need to get the proof bytes that we put on-chain.
                 let proof_bytes = proof.bytes();
+                fs::write(proof_file_path, &proof_bytes);
                 return Ok((
                     StatusCode::OK,
                     Json(ProofStatus {
@@ -588,6 +659,8 @@ async fn get_proof_status(
             SP1Proof::Plonk(_) => {
                 // If it's a plonk proof, we need to get the proof bytes that we put on-chain.
                 let proof_bytes = proof.bytes();
+
+                fs::write(proof_file_path, &proof_bytes);
                 return Ok((
                     StatusCode::OK,
                     Json(ProofStatus {
