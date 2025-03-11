@@ -1,24 +1,30 @@
-use alloy_primitives::B256;
-use anyhow::Result;
+use alloy_primitives::{hex, B256};
+use anyhow::{Context, Result};
 use log::{error, info};
 use op_succinct_client_utils::{boot::BootInfoStruct, types::u32_to_u8};
 use op_succinct_host_utils::{
     fetcher::{CacheMode, OPSuccinctDataFetcher, RunContext},
-    get_agg_proof_stdin, get_proof_stdin,
-    witnessgen::{WitnessGenExecutor, WITNESSGEN_TIMEOUT},
-    ProgramType,
+    get_agg_proof_stdin, get_proof_stdin, start_server_and_native_client, ProgramType,
 };
-use op_succinct_proposer::SpanProofRequest;
-use sp1_sdk::{utils, HashableKey, ProverClient, SP1Proof, SP1ProofWithPublicValues};
+use op_succinct_local_proposer::SpanProofRequest;
+use sp1_sdk::{utils, HashableKey, Prover, ProverClient, SP1Proof, SP1ProofWithPublicValues};
 use std::{fs, str::FromStr};
 
 pub const RANGE_ELF: &[u8] = include_bytes!("../../../elf/range-elf");
 pub const AGG_ELF: &[u8] = include_bytes!("../../../elf/aggregation-elf");
 
+const CHECKPOINTED_BLOCKHASH: &str = "0x00";
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    let l2_start_block = 12500;
-    let l2_end_block = 12501;
+    //  start: 27772, end: 28072
+    let l2_start_block = 27772;
+    let l2_end_block = 28072;
+
+    info!(
+        "Will be proving from block {} to block {}",
+        l2_start_block, l2_end_block
+    );
 
     // dummy payload
     let payload = SpanProofRequest {
@@ -30,7 +36,7 @@ async fn main() -> Result<()> {
 
     dotenv::dotenv().ok();
 
-    let prover = ProverClient::from_env();
+    let prover = ProverClient::builder().cuda().build();
     let (range_pk, range_vk) = prover.setup(RANGE_ELF);
     // let (_agg_pk, agg_vk) = prover.setup(AGG_ELF);
     let multi_block_vkey_u8 = u32_to_u8(range_vk.vk.hash_u32());
@@ -44,46 +50,24 @@ async fn main() -> Result<()> {
         }
     };
 
-    let host_cli = match fetcher
-        .get_host_cli_args(
+    let host_args = fetcher
+        .get_host_args(
             payload.start,
             payload.end,
+            None,
             ProgramType::Multi,
             CacheMode::DeleteCache,
         )
         .await
-    {
-        Ok(cli) => cli,
-        Err(e) => {
-            error!("Failed to get host CLI args: {}", e);
-            return Err(anyhow::anyhow!("Failed to get host CLI args: {}", e));
-        }
-    };
+        .context("Failed to get host CLI args")?;
 
-    // Start the server and native client with a timeout.
-    // Note: Ideally, the server should call out to a separate process that executes the native
-    // host, and return an ID that the client can poll on to check if the proof was submitted.
-    let mut witnessgen_executor = WitnessGenExecutor::new(WITNESSGEN_TIMEOUT, RunContext::Docker);
-    if let Err(e) = witnessgen_executor.spawn_witnessgen(&host_cli).await {
-        error!("Failed to spawn witness generation: {}", e);
-        return Err(anyhow::anyhow!("Failed to spawn witness generation: {}", e));
-    }
-    // Log any errors from running the witness generation process.
-    if let Err(e) = witnessgen_executor.flush().await {
-        error!("Failed to generate witness: {}", e);
-        return Err(anyhow::anyhow!("Failed to generate witness: {}", e));
-    }
+    let mem_kv_store = start_server_and_native_client(host_args).await?;
 
-    let sp1_stdin = match get_proof_stdin(&host_cli) {
-        Ok(stdin) => stdin,
-        Err(e) => {
-            error!("Failed to get proof stdin: {}", e);
-            return Err(anyhow::anyhow!("Failed to get proof stdin: {}", e));
-        }
-    };
+    let sp1_stdin = get_proof_stdin(mem_kv_store).context("Failed to get proof stdin")?;
 
     info!("executing span proof");
 
+    let start_time = tokio::time::Instant::now();
     let proof = prover
         .prove(&range_pk, &sp1_stdin)
         .compressed()
@@ -91,6 +75,9 @@ async fn main() -> Result<()> {
         .unwrap();
 
     info!("done with span proof");
+    let minutes = start_time.elapsed().as_secs_f64() / 60.0;
+    info!("Time to compute: {} minutes", minutes);
+    panic!("done");
 
     // Create a proof directory for the chain ID if it doesn't exist.
     let proof_dir = "proofs/".to_string();
@@ -102,41 +89,39 @@ async fn main() -> Result<()> {
     // Save the proof to the proof directory corresponding to the chain ID.
     proof.save(&proof_path).expect("saving proof failed");
 
-    info!("saved proof to {}", proof_path);
-    drop(prover);
-    info!("sleeping for 10 seconds");
-    tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-    info!("good morning");
-    let proof_path = "proofs/12500-12501.bin".to_string();
-
     let (proofs, boot_infos) = load_aggregation_proof_data(proof_path);
 
     info!("loaded saved proof");
 
-    let prover = ProverClient::from_env();
-    let (_, vkey) = prover.setup(RANGE_ELF);
+    let l1_head_string = CHECKPOINTED_BLOCKHASH
+        .strip_prefix("0x")
+        .context("Invalid L1 head format: missing 0x prefix")?;
+    let l1_head_bytes =
+        hex::decode(l1_head_string).context("Failed to decode L1 head hex string")?;
 
-    let header = fetcher.get_latest_l1_head_in_batch(&boot_infos).await?;
+    let l1_head: [u8; 32] = l1_head_bytes
+        .clone()
+        .try_into()
+        .expect("Invalid L1 head length, expected 32 bytes");
+
+    let fetcher = OPSuccinctDataFetcher::new_with_rollup_config(RunContext::Docker)
+        .await
+        .context("failed to create fetcher")?;
+
     let headers = fetcher
-        .get_header_preimages(&boot_infos, header.hash_slow())
-        .await?;
-    // let multi_block_vkey_u8 = u32_to_u8(vkey.vk.hash_u32());
-    // let multi_block_vkey_b256 = B256::from(multi_block_vkey_u8);
+        .get_header_preimages(&boot_infos, l1_head.into())
+        .await
+        .context("Failed to get header preimages")?;
 
-    // println!(
-    //     "Range ELF Verification Key Commitment: {}",
-    //     multi_block_vkey_b256
-    // );
-    let stdin =
-        get_agg_proof_stdin(proofs, boot_infos, headers, &vkey, header.hash_slow()).unwrap();
+    let sp1_stdin = get_agg_proof_stdin(proofs, boot_infos, headers, &range_vk, l1_head.into())
+        .context("Failed to get agg proof stdin")?;
 
     let (agg_pk, _) = prover.setup(AGG_ELF);
     // println!("Aggregate ELF Verification Key: {:?}", agg_vk.vk.bytes32());
-    //
-    //
+
     info!("executing agg proof");
     let _proof_res = prover
-        .prove(&agg_pk, &stdin)
+        .prove(&agg_pk, &sp1_stdin)
         .groth16()
         .run()
         .expect("proving failed");

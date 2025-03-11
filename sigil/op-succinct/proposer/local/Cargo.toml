@@ -7,9 +7,9 @@ authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 
-[[bin]]
-name = "local-server"
-path = "bin/server.rs"
+# [[bin]]
+# name = "local-server"
+# path = "bin/server.rs"
 
 [[bin]]
 name = "local-minimal-server"
